@@ -33,3 +33,122 @@
 .recentchev{font-size:20px;color:#94a0aa}.recentempty{padding:13px;border:1px dashed #33404b;border-radius:14px;color:var(--muted);font-size:9px}
 .histwork summary em{display:inline-block;font-style:normal;background:#222a32;color:#cdd6dd;border-radius:999px;padding:4px 7px;font-size:7px;font-weight:950;letter-spacing:.1em;margin-bottom:5px}
 .histwork.latesthist{border-color:#4d5e28}.histwork.latesthist summary em{background:var(--yellow);color:#090c10}
+
+
+/* ===== v5 MOBILE LAYOUT / iPHONE SAFE AREA ===== */
+html,body{
+  min-height:100%;
+  min-height:100dvh;
+}
+
+body{
+  padding-top:env(safe-area-inset-top, 0px);
+  padding-bottom:env(safe-area-inset-bottom, 0px);
+}
+
+.shell{
+  padding-top:calc(12px + env(safe-area-inset-top, 0px));
+  padding-left:14px;
+  padding-right:14px;
+  padding-bottom:calc(20px + env(safe-area-inset-bottom, 0px));
+}
+
+.brandrow{
+  min-height:48px;
+  padding:4px 2px 8px;
+  align-items:center;
+}
+
+.phone{
+  min-height:calc(100dvh - 92px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+}
+
+.content{
+  padding-bottom:calc(112px + env(safe-area-inset-bottom, 0px));
+}
+
+.nav{
+  left:10px;
+  right:10px;
+  bottom:calc(10px + env(safe-area-inset-bottom, 0px));
+  min-height:62px;
+  padding:8px 6px;
+  gap:4px;
+  border-radius:18px;
+}
+
+.nav.five{
+  grid-template-columns:repeat(5,minmax(0,1fr));
+}
+
+.nav button{
+  min-height:44px;
+  padding:10px 4px;
+  font-size:10px;
+  line-height:1;
+  letter-spacing:.02em;
+  white-space:nowrap;
+  overflow:visible;
+}
+
+.nav button.active{
+  border-radius:12px;
+}
+
+@media(max-width:650px){
+  .shell{
+    padding-top:calc(10px + env(safe-area-inset-top, 0px));
+    padding-left:8px;
+    padding-right:8px;
+    padding-bottom:calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .brandrow{
+    margin-bottom:8px;
+    min-height:52px;
+    padding-top:4px;
+  }
+
+  .brand{
+    font-size:24px;
+  }
+
+  .tag{
+    font-size:8.5px;
+  }
+
+  .phone{
+    min-height:calc(100dvh - 78px - env(safe-area-inset-top, 0px));
+    border-radius:24px;
+  }
+
+  .appbar{
+    padding-top:20px;
+    padding-left:18px;
+    padding-right:18px;
+  }
+
+  .appbar strong{
+    font-size:28px;
+  }
+
+  .content{
+    padding-left:14px;
+    padding-right:14px;
+    padding-bottom:calc(116px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .nav{
+    left:12px;
+    right:12px;
+    bottom:calc(10px + env(safe-area-inset-bottom, 0px));
+    min-height:64px;
+    padding:8px 6px;
+  }
+
+  .nav button{
+    font-size:10.5px;
+    font-weight:950;
+    letter-spacing:.015em;
+  }
+}
