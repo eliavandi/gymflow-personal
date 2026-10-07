@@ -276,3 +276,295 @@ body{
     font-size:26px;
   }
 }
+
+
+/* ===== v7 UI POLISH / MOBILE APP FEEL ===== */
+
+/* Una sola safe-area: evita il doppio spazio sopra/sotto su iPhone */
+body{
+  padding-top:0 !important;
+  padding-bottom:0 !important;
+}
+
+.shell{
+  padding-top:max(10px, env(safe-area-inset-top, 0px)) !important;
+  padding-bottom:calc(94px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* Header più stabile e compatto */
+.brandrow{
+  min-height:54px !important;
+  padding:4px 10px 10px !important;
+  margin-bottom:8px !important;
+}
+
+.brand{
+  font-size:25px !important;
+  line-height:.95;
+  letter-spacing:-.045em;
+}
+
+.tag{
+  margin-top:4px;
+  font-size:8.5px !important;
+  letter-spacing:.16em;
+}
+
+/* Contenitore principale: più pulito e uniforme */
+.phone{
+  border-radius:26px !important;
+  border-color:#27313a !important;
+  background:#090d11 !important;
+  box-shadow:0 18px 60px rgba(0,0,0,.30) !important;
+  overflow:visible !important;
+}
+
+.appbar{
+  padding:21px 20px 13px !important;
+}
+
+.appbar small{
+  font-size:9px !important;
+  letter-spacing:.16em;
+}
+
+.appbar strong{
+  font-size:30px !important;
+  line-height:.95 !important;
+}
+
+.content{
+  padding:16px 16px calc(116px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* Home hero */
+.hero{
+  padding:20px !important;
+  border-radius:22px !important;
+  background:linear-gradient(180deg,#12191f 0%,#0f151a 100%) !important;
+  border-color:#313c46 !important;
+}
+
+.hero .ey{
+  font-size:9px;
+  letter-spacing:.18em;
+}
+
+.hero h1{
+  font-size:clamp(36px,10.5vw,46px) !important;
+  line-height:.92 !important;
+  letter-spacing:-.055em !important;
+  margin:9px 0 18px !important;
+}
+
+.sessions{
+  gap:9px !important;
+  margin:0 0 14px !important;
+}
+
+.sess{
+  min-height:86px;
+  padding:14px 14px !important;
+  border-radius:16px !important;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+}
+
+.sess b{
+  font-size:28px !important;
+  line-height:1;
+}
+
+.sess span{
+  font-size:8.5px !important;
+  letter-spacing:.04em;
+}
+
+.sess.active{
+  border-color:#f5f7f8 !important;
+  box-shadow:inset 0 0 0 1.5px #f5f7f8 !important;
+}
+
+.start{
+  min-height:58px;
+  border-radius:15px !important;
+  font-size:15px !important;
+  letter-spacing:.01em;
+  box-shadow:0 8px 24px rgba(216,255,47,.10);
+}
+
+/* Sezioni più leggibili */
+.section{
+  margin:23px 0 10px !important;
+}
+
+.section h3{
+  font-size:16px !important;
+  letter-spacing:-.015em;
+}
+
+.section span{
+  font-size:8.5px !important;
+  letter-spacing:.04em;
+}
+
+/* Check-in più coerente */
+.checkgrid{
+  gap:10px !important;
+}
+
+.checkitem{
+  border-radius:16px !important;
+  padding:12px !important;
+  background:#12191f !important;
+}
+
+.checkitem label{
+  font-size:8.5px !important;
+  letter-spacing:.14em;
+}
+
+.checkitem input{
+  min-height:50px;
+  font-size:17px !important;
+  border-radius:12px !important;
+  padding:12px 13px !important;
+}
+
+.diettoggle{
+  gap:8px !important;
+}
+
+.diettoggle button{
+  min-height:46px;
+  font-size:9px !important;
+  border-radius:12px !important;
+}
+
+.autosave{
+  margin-top:10px !important;
+  font-size:8px !important;
+  letter-spacing:.03em;
+}
+
+/* Ultimi allenamenti */
+.recentlist{
+  gap:9px !important;
+}
+
+.recentwork{
+  min-height:70px;
+  border-radius:16px !important;
+  padding:12px !important;
+}
+
+.recentempty{
+  padding:15px !important;
+  border-radius:15px !important;
+}
+
+/* Azioni rapide */
+.quickgrid{
+  gap:9px !important;
+}
+
+.quick{
+  min-height:60px;
+  border-radius:16px !important;
+  padding:14px !important;
+  align-items:center;
+}
+
+.quick b{
+  font-size:12px;
+}
+
+.quick span{
+  font-size:8.5px !important;
+  text-align:right;
+}
+
+/* Pulsante esci più armonico */
+.brandrow .btn{
+  min-width:58px;
+  min-height:44px;
+  border-radius:13px !important;
+  font-size:9px !important;
+}
+
+/* Barra inferiore: completamente fissa al viewport */
+@media(max-width:650px){
+  .nav{
+    position:fixed !important;
+    left:50% !important;
+    right:auto !important;
+    bottom:calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+    transform:translateX(-50%) !important;
+    width:min(calc(100vw - 20px), 450px) !important;
+    min-height:66px !important;
+    margin:0 !important;
+    padding:7px !important;
+    gap:4px !important;
+    z-index:180 !important;
+    border-radius:20px !important;
+    border:1px solid rgba(66,79,90,.75) !important;
+    background:rgba(15,21,26,.94) !important;
+    box-shadow:0 12px 40px rgba(0,0,0,.55) !important;
+    -webkit-backdrop-filter:blur(18px);
+    backdrop-filter:blur(18px);
+  }
+
+  .nav.five{
+    grid-template-columns:repeat(5,minmax(0,1fr)) !important;
+  }
+
+  .nav button{
+    min-height:50px !important;
+    padding:8px 2px !important;
+    font-size:10px !important;
+    font-weight:950 !important;
+    letter-spacing:0 !important;
+    line-height:1 !important;
+    border-radius:14px !important;
+  }
+
+  .nav button.active{
+    background:#252d34 !important;
+    color:#fff !important;
+  }
+
+  /* la pagina scorre, la nav resta immobile */
+  .phone{
+    overflow:visible !important;
+    min-height:calc(100dvh - max(10px, env(safe-area-inset-top, 0px)) - 70px) !important;
+  }
+
+  .content{
+    padding-bottom:calc(122px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
+
+/* telefoni molto stretti */
+@media(max-width:380px){
+  .content{
+    padding-left:12px !important;
+    padding-right:12px !important;
+  }
+
+  .hero{
+    padding:17px !important;
+  }
+
+  .hero h1{
+    font-size:34px !important;
+  }
+
+  .nav{
+    width:calc(100vw - 14px) !important;
+  }
+
+  .nav button{
+    font-size:9.25px !important;
+  }
+}

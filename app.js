@@ -127,7 +127,7 @@ function renderHome(){
   app.innerHTML=shell(`<div class="appbar"><div><small>${new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})}</small><strong>Ciao ${esc(state.profile.firstName)}</strong></div></div>
   <div class="content">
     ${activeWorkout()?`<button id="resume" class="resume"><b>Allenamento in corso · Seduta ${activeWorkout().sessionCode}</b><span>Riprendi →</span></button>`:''}
-    <div class="hero"><div class="ey">Scegli allenamento</div><h1>Quale seduta fai oggi?</h1><div class="sessions">${state.program.sessions.map(s=>`<button class="sess ${selectedSession===s.code?'active':''}" data-session="${s.code}"><b>${s.code}</b><span>${s.exercises.length} esercizi</span></button>`).join('')}</div><button id="startWorkout" class="start">Inizia allenamento ${selectedSession}</button></div>
+    <div class="hero"><div class="ey">Scegli allenamento</div><h1>Let’s do it</h1><div class="sessions">${state.program.sessions.map(s=>`<button class="sess ${selectedSession===s.code?'active':''}" data-session="${s.code}"><b>${s.code}</b><span>${s.exercises.length} esercizi</span></button>`).join('')}</div><button id="startWorkout" class="start">Inizia allenamento ${selectedSession}</button></div>
 
     <div class="section recenttitle"><h3>Ultimi allenamenti</h3><span>ordine e cadenza</span></div>
     <div class="recentlist">${recentWorkoutHtml(3)}</div>
