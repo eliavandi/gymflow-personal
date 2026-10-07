@@ -201,17 +201,31 @@ function sessionCodeFromText(v){
   return null;
 }
 function parseRest(v){
-  const raw=cleanText(v).toLowerCase().replace(',','.');
+  const raw=cleanText(v).toLowerCase().replace(',','.').replace(/[–—]/g,'-');
   if(!raw)return 90;
-  let m=raw.match(/(\d+)\s*[:]\s*(\d+)/);
-  if(m)return Number(m[1])*60+Number(m[2]);
-  m=raw.match(/(\d+)\s*(?:m|min|minuti?)\s*(?:(\d+)\s*(?:s|sec|secondi?))?/);
-  if(m)return Number(m[1])*60+Number(m[2]||0);
-  m=raw.match(/(\d+)\s*['′]\s*(?:(\d+)\s*["″]?)?/);
-  if(m)return Number(m[1])*60+Number(m[2]||0);
-  const n=safeNumber(raw,90);
-  if(/\bmin\b| minuti?/.test(raw))return Math.round(n*60);
-  return Math.max(0,Math.round(n));
+
+  const parseOne=(part)=>{
+    part=cleanText(part);
+    let m=part.match(/(\d+)\s*[:]\s*(\d+)/);
+    if(m)return Number(m[1])*60+Number(m[2]);
+    m=part.match(/(\d+)\s*(?:m|min|minuti?)\s*(?:(\d+)\s*(?:s|sec|secondi?))?/);
+    if(m)return Number(m[1])*60+Number(m[2]||0);
+    m=part.match(/(\d+)\s*['′]\s*(?:(\d+)\s*["″]?)?/);
+    if(m)return Number(m[1])*60+Number(m[2]||0);
+    const n=safeNumber(part,90);
+    if(/\bmin\b|minuti?/.test(part))return Math.round(n*60);
+    return Math.max(0,Math.round(n));
+  };
+
+  // Se il PT indica un intervallo (es. 2'-3' oppure 1'30"-2'),
+  // usiamo il valore medio: 150s e 105s rispettivamente.
+  const parts=raw.split(/\s*-\s*/).filter(Boolean);
+  if(parts.length>=2){
+    const a=parseOne(parts[0]);
+    const b=parseOne(parts[1]);
+    return Math.round((a+b)/2);
+  }
+  return parseOne(raw);
 }
 function parseReps(v){
   const raw=cleanText(v).replace(/[–—]/g,'-');
@@ -222,7 +236,8 @@ function parseReps(v){
 }
 function parseScheme(v){
   const raw=cleanText(v).replace(/[×X]/g,'x').replace(/[–—]/g,'-');
-  const m=raw.match(/(\d+)\s*x\s*(\d+)(?:\s*-\s*(\d+))?/i);
+  // Supporta sia 4x6-8 sia il formato del tuo file 4x6/8.
+  const m=raw.match(/(\d+)\s*x\s*(\d+)(?:\s*(?:-|\/)\s*(\d+))?/i);
   if(m)return {sets:Number(m[1]),repsMin:Number(m[2]),repsMax:Number(m[3]||m[2])};
   return null;
 }
@@ -240,6 +255,7 @@ function headerKind(v){
   if(/\bcarico\b|\bpeso\b|\bweight\b|kg/.test(n))return 'weight';
   if(/cadenza|\btempo\b|\btut\b/.test(n))return 'tempo';
   if(/note|indicaz|tecnica|comment/.test(n))return 'note';
+  if(/^(week|settimana)\s*1$/.test(n))return 'performance';
   return null;
 }
 function rowTexts(ws,rowNo){
@@ -260,6 +276,21 @@ function headerMap(cells){
 function headerScore(map){
   return (map.exercise!==undefined?4:0)+(map.scheme!==undefined?2:0)+(map.sets!==undefined?1:0)+(map.reps!==undefined?1:0)+(map.rest!==undefined?1:0)+(map.weight!==undefined?1:0);
 }
+function parsePerformance(v){
+  const raw=cleanText(v).replace(',','.');
+  if(!raw)return {weight:null,reps:null};
+
+  const weightMatch=raw.match(/(\d+(?:\.\d+)?)\s*kg\b/i);
+  const weight=weightMatch?Number(weightMatch[1]):null;
+
+  // Rimuoviamo il peso prima di leggere le ripetizioni:
+  // "8-8-7 116kg" -> [8,8,7]
+  // "40kg 6-6-6" -> [6,6,6]
+  const withoutWeight=raw.replace(/(\d+(?:\.\d+)?)\s*kg\b/ig,' ');
+  const reps=(withoutWeight.match(/\d+/g)||[]).map(Number).filter(n=>n>0&&n<100);
+  return {weight,reps:reps.length?reps:null};
+}
+
 function parseExerciseFromRow(cells,map,code,index){
   const name=cleanText(cells[map.exercise]);
   if(!name||headerKind(name)==='exercise')return null;
@@ -275,7 +306,9 @@ function parseExerciseFromRow(cells,map,code,index){
   if(map.reps!==undefined)[repsMin,repsMax]=parseReps(cells[map.reps]);
 
   const restSec=map.rest!==undefined?parseRest(cells[map.rest]):90;
-  const suggestedWeight=map.weight!==undefined?safeNumber(cells[map.weight],0):0;
+  const perf=map.performance!==undefined?parsePerformance(cells[map.performance]):{weight:null,reps:null};
+  const suggestedWeight=map.weight!==undefined?safeNumber(cells[map.weight],perf.weight??0):(perf.weight??0);
+  const suggestedReps=perf.reps?.length?perf.reps[0]:repsMax;
   const tempo=map.tempo!==undefined?cleanText(cells[map.tempo])||'—':'—';
   const note=map.note!==undefined?cleanText(cells[map.note]):'';
 
@@ -289,7 +322,7 @@ function parseExerciseFromRow(cells,map,code,index){
     tempo,
     note,
     suggestedWeight,
-    suggestedReps:repsMax
+    suggestedReps
   };
 }
 
@@ -333,17 +366,22 @@ async function parseWorkbook(filename,dataBase64,currentProgram){
         const cells=rowTexts(ws,r);
         const combined=cells.filter(Boolean).join(' ');
         const labelCode=sessionCodeFromText(combined);
+        const firstCellCode=sessionCodeFromText(cells[0]);
         const nonEmpty=cells.filter(Boolean).length;
 
         const candidate=headerMap(cells);
         if(candidate.exercise!==undefined && headerScore(candidate)>=4){
           map=candidate;
           foundHeader=true;
-          if(labelCode && nonEmpty<=4)currentCode=labelCode;
           continue;
         }
 
-        if(labelCode && nonEmpty<=4){
+        // FIX IMPORTANTE PER IL FILE DI ELIA:
+        // "Fullbody 1/2/3" è nella colonna A della STESSA RIGA
+        // del primo esercizio. Non dobbiamo saltare quella riga:
+        // cambiamo seduta e poi continuiamo a leggerla come esercizio.
+        if(firstCellCode)currentCode=firstCellCode;
+        else if(labelCode && nonEmpty<=4){
           currentCode=labelCode;
           continue;
         }
