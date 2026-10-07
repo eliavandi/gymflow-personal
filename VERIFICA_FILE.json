@@ -1,0 +1,41 @@
+{
+  "file": "4_Elia Vandi.xlsx",
+  "sheet": "Allenamento",
+  "counts": {
+    "A": 8,
+    "B": 8,
+    "C": 8
+  },
+  "names": {
+    "A": [
+      "Leg press 45°",
+      "Leg extension",
+      "Spinte al multipower panca 30°",
+      "Chest press",
+      "Curl manubri presa supina",
+      "Curl panca 45°",
+      "Alzate laterali in piedi",
+      "Leg raise panca declinata"
+    ],
+    "B": [
+      "Lat machine triangolo",
+      "Low Row",
+      "Leg curl seduto",
+      "Leg curl sdraiato",
+      "French press manubri",
+      "Push down corda",
+      "Face pull",
+      "Deadbug dinamico"
+    ],
+    "C": [
+      "Rematore manubrio singolo",
+      "Pulley triangolo",
+      "Spinte manubri panca piana",
+      "OHP multipower panca 60°",
+      "Alzate laterali decubito laterale",
+      "Cad curl",
+      "French press cavo basso",
+      "Crunch al cavo alto"
+    ]
+  }
+}

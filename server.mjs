@@ -336,6 +336,18 @@ async function parseWorkbook(filename,dataBase64,currentProgram){
 
   const sessionsMap=new Map([['A',[]],['B',[]],['C',[]]]);
   const warnings=[];
+  const diagnostics=[];
+
+  const pushExercise=(code,ex,rowNo,sheetName)=>{
+    if(!ex||!sessionsMap.has(code))return;
+    // Evita duplicati accidentali se un foglio usa celle unite.
+    const key=`${norm(ex.name)}|${ex.sets}|${ex.repsMin}|${ex.repsMax}`;
+    if(sessionsMap.get(code).some(x=>x._importKey===key))return;
+    ex._importKey=key;
+    ex._sourceRow=rowNo;
+    ex._sourceSheet=sheetName;
+    sessionsMap.get(code).push(ex);
+  };
 
   if(ext==='.csv'){
     const txt=buffer.toString('utf8').replace(/^\uFEFF/,'');
@@ -348,9 +360,10 @@ async function parseWorkbook(filename,dataBase64,currentProgram){
     let currentCode='A';
     rows.slice(1).forEach((cells,i)=>{
       const fromCol=map.session!==undefined?sessionCodeFromText(cells[map.session]):null;
-      if(fromCol)currentCode=fromCol;
-      const ex=parseExerciseFromRow(cells,map,currentCode,i);
-      if(ex)sessionsMap.get(currentCode).push(ex);
+      const marker=sessionCodeFromText(cells[0])||sessionCodeFromText(cells.join(' '));
+      if(fromCol||marker)currentCode=fromCol||marker;
+      const ex=parseExerciseFromRow(cells,map,currentCode,i+2);
+      if(ex)pushExercise(currentCode,ex,i+2,'CSV');
     });
   }else{
     const wb=new ExcelJS.Workbook();
@@ -358,56 +371,116 @@ async function parseWorkbook(filename,dataBase64,currentProgram){
     if(!wb.worksheets.length)throw new Error('Il file Excel non contiene fogli');
 
     wb.worksheets.forEach((ws,wsIndex)=>{
-      let currentCode=sessionCodeFromText(ws.name)||['A','B','C'][wsIndex]||'A';
-      let map=null;
-      let foundHeader=false;
+      /*
+        Strategia robusta:
+        1. individua OGNI riga intestazione contenente "Esercizio";
+        2. considera quella riga l'inizio di un blocco;
+        3. legge TUTTE le righe esercizio successive fino alla prossima intestazione
+           o fino a due righe consecutive senza esercizio;
+        4. il marker Fullbody 1/2/3 può stare nella stessa riga del primo esercizio
+           e può essere una cella unita: non viene mai usato per saltare la riga.
+      */
+      const blocks=[];
 
       for(let r=1;r<=ws.rowCount;r++){
         const cells=rowTexts(ws,r);
-        const combined=cells.filter(Boolean).join(' ');
-        const labelCode=sessionCodeFromText(combined);
-        const firstCellCode=sessionCodeFromText(cells[0]);
-        const nonEmpty=cells.filter(Boolean).length;
-
         const candidate=headerMap(cells);
         if(candidate.exercise!==undefined && headerScore(candidate)>=4){
-          map=candidate;
-          foundHeader=true;
-          continue;
+          blocks.push({headerRow:r,map:candidate});
         }
-
-        // FIX IMPORTANTE PER IL FILE DI ELIA:
-        // "Fullbody 1/2/3" è nella colonna A della STESSA RIGA
-        // del primo esercizio. Non dobbiamo saltare quella riga:
-        // cambiamo seduta e poi continuiamo a leggerla come esercizio.
-        if(firstCellCode)currentCode=firstCellCode;
-        else if(labelCode && nonEmpty<=4){
-          currentCode=labelCode;
-          continue;
-        }
-
-        if(!map)continue;
-        const fromCol=map.session!==undefined?sessionCodeFromText(cells[map.session]):null;
-        const code=fromCol||currentCode;
-        if(!sessionsMap.has(code))continue;
-        const ex=parseExerciseFromRow(cells,map,code,r);
-        if(ex)sessionsMap.get(code).push(ex);
       }
 
-      if(!foundHeader)warnings.push(`Nel foglio "${ws.name}" non ho trovato una riga intestazioni riconoscibile.`);
+      // Fallback per fogli semplici senza intestazioni ripetute.
+      if(!blocks.length){
+        warnings.push(`Nel foglio "${ws.name}" non ho trovato intestazioni standard; provo la lettura generica.`);
+        let currentCode=sessionCodeFromText(ws.name)||['A','B','C'][wsIndex]||'A';
+        let map=null;
+        for(let r=1;r<=ws.rowCount;r++){
+          const cells=rowTexts(ws,r);
+          const candidate=headerMap(cells);
+          if(candidate.exercise!==undefined){
+            map=candidate;
+            continue;
+          }
+          if(!map)continue;
+          const marker=sessionCodeFromText(cells[0])||sessionCodeFromText(cells.filter(Boolean).join(' '));
+          if(marker)currentCode=marker;
+          const ex=parseExerciseFromRow(cells,map,currentCode,r);
+          if(ex)pushExercise(currentCode,ex,r,ws.name);
+        }
+        return;
+      }
+
+      blocks.forEach((block,blockIndex)=>{
+        const nextHeader=blocks[blockIndex+1]?.headerRow || (ws.rowCount+1);
+        let code=null;
+
+        // Per il tuo formato: Fullbody 1/2/3 è normalmente nella prima riga dati.
+        for(let r=block.headerRow+1;r<nextHeader;r++){
+          const cells=rowTexts(ws,r);
+          const marker=sessionCodeFromText(cells[0]) || sessionCodeFromText(cells.filter(Boolean).join(' '));
+          if(marker){code=marker;break;}
+          if(cleanText(cells[block.map.exercise]))break;
+        }
+
+        // Se non troviamo un marker, assegniamo i blocchi in ordine A/B/C.
+        if(!code)code=['A','B','C'][blockIndex] || sessionCodeFromText(ws.name) || 'A';
+
+        let blankExerciseRows=0;
+        let added=0;
+
+        for(let r=block.headerRow+1;r<nextHeader;r++){
+          const cells=rowTexts(ws,r);
+
+          // Se una cella unita ripete "Fullbody 1" su più righe, aggiorna solo il codice.
+          const marker=sessionCodeFromText(cells[0]);
+          if(marker)code=marker;
+
+          const exerciseName=cleanText(cells[block.map.exercise]);
+          if(!exerciseName){
+            blankExerciseRows++;
+            if(blankExerciseRows>=2)break;
+            continue;
+          }
+          blankExerciseRows=0;
+
+          // Protezione contro righe che ripetono le intestazioni.
+          if(headerKind(exerciseName)==='exercise')continue;
+
+          const ex=parseExerciseFromRow(cells,block.map,code,r);
+          if(ex){
+            pushExercise(code,ex,r,ws.name);
+            added++;
+          }
+        }
+
+        diagnostics.push({
+          sheet:ws.name,
+          headerRow:block.headerRow,
+          session:code,
+          parsedRows:added
+        });
+      });
     });
   }
 
   const sessions=['A','B','C'].map(code=>({
     code,
     title:`Seduta ${code}`,
-    exercises:sessionsMap.get(code)
+    exercises:sessionsMap.get(code).map(e=>{
+      const clean={...e};
+      delete clean._importKey;
+      delete clean._sourceRow;
+      delete clean._sourceSheet;
+      return clean;
+    })
   }));
 
   const total=sessions.reduce((a,s)=>a+s.exercises.length,0);
   if(!total){
-    throw new Error('Non sono riuscito a riconoscere esercizi. Servono intestazioni tipo Esercizio, Serie, Reps, Recupero.');
+    throw new Error('Non sono riuscito a riconoscere esercizi. Servono intestazioni tipo Esercizio, Serie x reps e Recupero.');
   }
+
   for(const s of sessions){
     if(!s.exercises.length)warnings.push(`Seduta ${s.code}: nessun esercizio riconosciuto.`);
   }
@@ -419,6 +492,7 @@ async function parseWorkbook(filename,dataBase64,currentProgram){
     updatedAt:nowIso(),
     sourceType:'excel',
     sourceFileName:filename,
+    importDiagnostics:diagnostics,
     sessions
   };
 }
@@ -612,10 +686,11 @@ async function handleApi(req,res,url){
     try{
       const state=await readState();
       const program=await parseWorkbook(filename,dataBase64,state.program);
-      const summary=program.sessions.map(s=>({code:s.code,count:s.exercises.length,names:s.exercises.slice(0,4).map(e=>e.name)}));
+      const summary=program.sessions.map(s=>({code:s.code,count:s.exercises.length,names:s.exercises.map(e=>e.name)}));
+      const diagnostics=program.importDiagnostics||[];
       const warnings=[];
       for(const s of program.sessions)if(!s.exercises.length)warnings.push(`Seduta ${s.code}: nessun esercizio riconosciuto`);
-      return json(res,200,{program,summary,warnings});
+      return json(res,200,{program,summary,warnings,diagnostics});
     }catch(err){
       return json(res,400,{error:err.message||'Impossibile leggere il file Excel'});
     }
