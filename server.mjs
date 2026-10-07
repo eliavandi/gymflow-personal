@@ -18,6 +18,7 @@ const APP_EMAIL = String(process.env.APP_EMAIL || 'elia@gymflow.local').trim().t
 const APP_PASSWORD = String(process.env.APP_PASSWORD || 'demo1234');
 const SESSION_SECRET = String(process.env.SESSION_SECRET || 'gymflow-dev-change-this-secret');
 const COOKIE_NAME = 'gymflow_session';
+const BUILD_ID = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
 let pgPool = null;
 let writeQueue = Promise.resolve();
@@ -529,7 +530,7 @@ async function handleApi(req,res,url){
   const p=url.pathname;
   const method=req.method||'GET';
 
-  if(p==='/api/health')return json(res,200,{ok:true,storage:USE_POSTGRES?'postgres':'json',time:nowIso()});
+  if(p==='/api/health')return json(res,200,{ok:true,storage:USE_POSTGRES?'postgres':'json',build:BUILD_ID,time:nowIso()});
 
   if(p==='/api/login'&&method==='POST'){
     const {email,password}=await bodyJson(req);
@@ -618,15 +619,33 @@ async function serveStatic(req,res,url){
   try{
     const stat=await fs.stat(full);
     if(stat.isDirectory())throw new Error('dir');
-    const data=await fs.readFile(full);
+    let data=await fs.readFile(full);
+    const ext=path.extname(full);
+
+    // L'HTML riceve automaticamente una versione nuova ad ogni deploy.
+    // Così app.js/styles.css cambiano URL e non possono restare bloccati
+    // nella vecchia cache del browser o del Service Worker.
+    if(ext==='.html'){
+      data=Buffer.from(data.toString('utf8').replaceAll('__BUILD_VERSION__',BUILD_ID),'utf8');
+    }
+
+    const noCache=new Set(['.html','.js','.css','.webmanifest']);
     res.writeHead(200,{
-      'Content-Type':MIME[path.extname(full)]||'application/octet-stream',
-      'Cache-Control':path.extname(full)==='.html'?'no-cache':'public, max-age=300'
+      'Content-Type':MIME[ext]||'application/octet-stream',
+      'Cache-Control':noCache.has(ext)?'no-store, no-cache, must-revalidate, max-age=0':'public, max-age=86400',
+      'Pragma':noCache.has(ext)?'no-cache':undefined,
+      'Expires':noCache.has(ext)?'0':undefined
     });
     res.end(data);
   }catch{
-    const index=await fs.readFile(path.join(PUBLIC_DIR,'index.html'));
-    res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache'});
+    let index=await fs.readFile(path.join(PUBLIC_DIR,'index.html'),'utf8');
+    index=index.replaceAll('__BUILD_VERSION__',BUILD_ID);
+    res.writeHead(200,{
+      'Content-Type':'text/html; charset=utf-8',
+      'Cache-Control':'no-store, no-cache, must-revalidate, max-age=0',
+      'Pragma':'no-cache',
+      'Expires':'0'
+    });
     res.end(index);
   }
 }

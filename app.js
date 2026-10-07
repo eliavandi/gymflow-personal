@@ -459,7 +459,14 @@ function renderProfile(){
 }
 
 async function boot(){
-  if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'}).catch(()=>{});
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(sessionStorage.getItem('gymflow-sw-reloaded')==='1')return;
+      sessionStorage.setItem('gymflow-sw-reloaded','1');
+      location.reload();
+    });
+    navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'}).then(reg=>reg.update()).catch(()=>{});
+  }
   initSync();
   let auth=null;
   try{if(navigator.onLine){const r=await fetch('/api/me',{credentials:'include'});if(r.ok)auth=(await r.json()).user;}}catch{}
