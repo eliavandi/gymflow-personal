@@ -1,0 +1,18 @@
+{
+  "name": "gymflow-personal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "check": "node --check server.mjs && node --check public/app.js && node --check public/offline-db.js && node --check public/sync.js && node --check public/sw.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "pg": "^8.13.1"
+  }
+}
