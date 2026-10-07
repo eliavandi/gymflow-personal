@@ -74,6 +74,32 @@ function recentWorkoutHtml(limit=3){
   }).join('');
 }
 
+function lastWorkoutForSession(code){
+  return completedWorkouts().find(w=>w.sessionCode===code)||null;
+}
+function sessionChoicesHtml(){
+  return `<div class="sessionchoices">${state.program.sessions.map(s=>{
+    const last=lastWorkoutForSession(s.code);
+    const when=last?daysAgoLabel(last.finishedAt):'mai fatta';
+    return `<button class="sessionchoice" data-start-session="${s.code}">
+      <div class="sessionletter">${esc(s.code)}</div>
+      <div class="sessionchoicebody">
+        <b>Seduta ${esc(s.code)}</b>
+        <span>${s.exercises.length} esercizi · ultima: ${esc(when)}</span>
+      </div>
+      <div class="sessionarrow">›</div>
+    </button>`;
+  }).join('')}</div>`;
+}
+function bindSessionChoices(){
+  document.querySelectorAll('[data-start-session]').forEach(b=>{
+    b.onclick=()=>startWorkout(b.dataset.startSession);
+  });
+}
+function completedSetCount(w){
+  return (w?.sets||[]).filter(s=>s.completedAt).length;
+}
+
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;});
 window.addEventListener('appinstalled',()=>{installPrompt=null;toast('GymFlow installata');});
 
@@ -124,10 +150,20 @@ function render(){
 
 function renderHome(){
   const c=getCheckin()||{};
+  const aw=activeWorkout();
   app.innerHTML=shell(`<div class="appbar"><div><small>${new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})}</small><strong>Ciao ${esc(state.profile.firstName)}</strong></div></div>
   <div class="content">
-    ${activeWorkout()?`<button id="resume" class="resume"><b>Allenamento in corso · Seduta ${activeWorkout().sessionCode}</b><span>Riprendi →</span></button>`:''}
-    <div class="hero"><div class="ey">Scegli allenamento</div><h1>Let’s do it</h1><div class="sessions">${state.program.sessions.map(s=>`<button class="sess ${selectedSession===s.code?'active':''}" data-session="${s.code}"><b>${s.code}</b><span>${s.exercises.length} esercizi</span></button>`).join('')}</div><button id="startWorkout" class="start">Inizia allenamento ${selectedSession}</button></div>
+    ${aw?`<div class="activework">
+      <div><small>ALLENAMENTO IN CORSO</small><b>Seduta ${esc(aw.sessionCode)}</b><span>${completedSetCount(aw)} serie completate</span></div>
+      <div class="activeworkactions"><button id="resume" class="btn white">Riprendi</button><button id="cancelFromHome" class="btn dangerbtn">Annulla</button></div>
+    </div>`:''}
+
+    <div class="simplehero">
+      <div class="ey">Scegli liberamente</div>
+      <h1>Let's do it</h1>
+      <p>Nessun ordine obbligatorio: puoi fare A, B o C quando vuoi.</p>
+      ${sessionChoicesHtml()}
+    </div>
 
     <div class="section recenttitle"><h3>Ultimi allenamenti</h3><span>ordine e cadenza</span></div>
     <div class="recentlist">${recentWorkoutHtml(3)}</div>
@@ -147,9 +183,9 @@ function renderHome(){
     </div>
   </div>${nav('home')}`);
   bindNav();
-  document.querySelectorAll('[data-session]').forEach(b=>b.onclick=()=>{selectedSession=b.dataset.session;renderHome();});
-  document.getElementById('startWorkout').onclick=startWorkout;
+  bindSessionChoices();
   if(document.getElementById('resume'))document.getElementById('resume').onclick=()=>{view='workout';render();};
+  if(document.getElementById('cancelFromHome'))document.getElementById('cancelFromHome').onclick=()=>cancelWorkout(activeWorkout());
   document.getElementById('historyQuick').onclick=()=>{view='history';render();};
   document.getElementById('programQuick').onclick=()=>{view='program';render();};
   document.querySelectorAll('[data-open-history]').forEach(b=>b.onclick=()=>{view='history';render();});
@@ -174,47 +210,135 @@ async function saveCheckin(){
   const t=document.getElementById('autosaveText');if(t)t.textContent=navigator.onLine?'✓ Salvato · sincronizzazione automatica':'✓ Salvato offline sul dispositivo';
 }
 
-async function startWorkout(){
-  if(activeWorkout()){view='workout';return render();}
-  const template=sessionTemplate(selectedSession);
-  if(!template||!template.exercises.length)return toast(`La seduta ${selectedSession} non contiene esercizi`);
-  const w={id:uid('ws'),sessionCode:selectedSession,programId:state.program.id,programVersion:state.program.version,
-    startedAt:new Date().toISOString(),finishedAt:null,status:'in_progress',
-    exerciseSnapshot:structuredClone(template.exercises),sets:[]};
-  state.workouts.push(w);await mutate('start_workout',{workout:w},state);view='workout';render();
+async function startWorkout(code){
+  const target=code||selectedSession||'A';
+  const current=activeWorkout();
+
+  if(current){
+    if(current.sessionCode===target){
+      view='workout';
+      return render();
+    }
+
+    const done=completedSetCount(current);
+    if(done>0){
+      const ok=confirm(`Hai già registrato ${done} ${done===1?'serie':'serie'} nella seduta ${current.sessionCode}. Vuoi annullarla e iniziare la seduta ${target}?`);
+      if(!ok)return;
+    }
+    await cancelWorkout(current,{silent:true,stay:true});
+  }
+
+  const template=sessionTemplate(target);
+  if(!template||!template.exercises.length)return toast(`La seduta ${target} non contiene esercizi`);
+
+  const w={
+    id:uid('ws'),
+    sessionCode:target,
+    programId:state.program.id,
+    programVersion:state.program.version,
+    startedAt:new Date().toISOString(),
+    finishedAt:null,
+    status:'in_progress',
+    exerciseSnapshot:structuredClone(template.exercises),
+    sets:[]
+  };
+  state.workouts.push(w);
+  await mutate('start_workout',{workout:w},state);
+  view='workout';
+  render();
+}
+
+async function cancelWorkout(w=activeWorkout(),options={}){
+  if(!w)return;
+  const done=completedSetCount(w);
+
+  if(!options.silent && done>0){
+    const ok=confirm(`Annullare la seduta ${w.sessionCode}? Le ${done} serie registrate in questo allenamento non compariranno nello storico.`);
+    if(!ok)return;
+  }
+
+  w.status='cancelled';
+  w.cancelledAt=new Date().toISOString();
+  w.updatedAt=w.cancelledAt;
+  await mutate('cancel_workout',{workoutId:w.id,cancelledAt:w.cancelledAt},state);
+
+  if(!options.silent)toast(`Seduta ${w.sessionCode} annullata`);
+  if(!options.stay){
+    view='home';
+    render();
+  }
 }
 
 function renderWorkout(){
   const w=activeWorkout();
+
   if(!w){
-    app.innerHTML=shell(`<div class="appbar"><div><small>Allenamento</small><strong>Nessuna seduta attiva</strong></div></div>
+    app.innerHTML=shell(`<div class="appbar"><div><small>Allenamento</small><strong>Scegli la seduta</strong></div></div>
     <div class="content">
-      <div class="card"><div class="ey">Pronto per allenarti</div><b>Scegli A, B o C dalla schermata Oggi.</b></div>
+      <div class="simplehero workoutchooser">
+        <div class="ey">Ordine libero</div>
+        <h1>A, B o C?</h1>
+        <p>Scegli quella che vuoi fare oggi. Non c'è una sequenza obbligatoria.</p>
+        ${sessionChoicesHtml()}
+      </div>
       <div class="section recenttitle"><h3>Ultime sedute</h3><span>ordine e cadenza</span></div>
       <div class="recentlist">${recentWorkoutHtml(3)}</div>
     </div>${nav('workout')}`);
     bindNav();
+    bindSessionChoices();
     document.querySelectorAll('[data-open-history]').forEach(b=>b.onclick=()=>{view='history';render();});
     return;
   }
-  app.innerHTML=shell(`<div class="appbar"><div><small>Allenamento in corso</small><strong>Seduta ${esc(w.sessionCode)}</strong></div><button id="finishWorkout" class="btn">Termina</button></div>
+
+  const totalSets=(w.exerciseSnapshot||[]).reduce((sum,e)=>sum+Number(e.sets||0),0);
+  const done=completedSetCount(w);
+  const pct=totalSets?Math.round(done/totalSets*100):0;
+
+  app.innerHTML=shell(`<div class="appbar workoutbar">
+    <div><small>Allenamento in corso</small><strong>Seduta ${esc(w.sessionCode)}</strong></div>
+    <button id="leaveWorkout" class="btn">Esci</button>
+  </div>
   <div class="content">
-    <div class="helper"><div class="ey">Informazioni</div><h3>Ordine libero degli esercizi</h3><p>Questa è solo una descrizione. Gli esercizi veri iniziano qui sotto e puoi aprirli nell’ordine che preferisci.</p></div>
-    <div class="section"><h3>Esercizi di oggi</h3><span>${w.exerciseSnapshot.length} esercizi</span></div>
+    <div class="workprogress">
+      <div><b>${done}/${totalSets}</b><span>serie completate</span></div>
+      <div class="progressbar"><i style="width:${pct}%"></i></div>
+    </div>
+
+    <div class="section"><h3>Esercizi</h3><span>scegli l'ordine che vuoi</span></div>
     ${w.exerciseSnapshot.map(e=>{
       const completed=(w.sets||[]).filter(s=>s.exerciseId===e.id&&s.completedAt).length;
-      return `<button class="exercise" data-ex="${e.id}"><div><b>${esc(e.name)}</b><small>${e.sets}×${e.repsMin}-${e.repsMax} · recupero ${restLabel(e.restSec)}</small></div><span>${completed}/${e.sets} ›</span></button>`;
+      return `<button class="exercise ${completed>=e.sets?'exercisecomplete':''}" data-ex="${e.id}">
+        <div><b>${esc(e.name)}</b><small>${e.sets}×${e.repsMin}-${e.repsMax} · recupero ${restLabel(e.restSec)}</small></div>
+        <span>${completed}/${e.sets} ›</span>
+      </button>`;
     }).join('')}
+
+    <div class="workoutactions">
+      <button id="finishWorkout" class="start">Termina allenamento</button>
+      <button id="cancelWorkout" class="cancelwork">Annulla allenamento</button>
+    </div>
   </div>${nav('workout')}`);
+
   bindNav();
   document.querySelectorAll('[data-ex]').forEach(b=>b.onclick=()=>{activeExerciseId=b.dataset.ex;view='exercise';render();});
+  document.getElementById('leaveWorkout').onclick=()=>{view='home';render();};
   document.getElementById('finishWorkout').onclick=finishWorkout;
+  document.getElementById('cancelWorkout').onclick=()=>cancelWorkout(w);
 }
+
 async function finishWorkout(){
   const w=activeWorkout();if(!w)return;
-  w.status='completed';w.finishedAt=new Date().toISOString();
+  const done=completedSetCount(w);
+  if(done===0){
+    const ok=confirm('Non hai registrato nessuna serie. Vuoi davvero terminare questo allenamento?');
+    if(!ok)return;
+  }
+  w.status='completed';
+  w.finishedAt=new Date().toISOString();
   await mutate('finish_workout',{workoutId:w.id,finishedAt:w.finishedAt,workout:w},state);
-  toast('Allenamento salvato');view='home';render();
+  toast('Allenamento salvato');
+  view='home';
+  render();
 }
 
 function lastSet(exerciseId,setNo){
@@ -227,7 +351,7 @@ function renderExercise(){
   const w=activeWorkout();if(!w){view='workout';return render();}
   const e=w.exerciseSnapshot.find(x=>x.id===activeExerciseId)||w.exerciseSnapshot[0];activeExerciseId=e.id;
   const last=e.lastPerformance?.length?e.lastPerformance.map(s=>`${s.weight}×${s.reps}`).join(' / '):'Nessuno';
-  app.innerHTML=shell(`<div class="appbar"><div><small>Seduta ${w.sessionCode}</small><strong>Esercizio</strong></div><button id="backWorkout" class="btn">Indietro</button></div>
+  app.innerHTML=shell(`<div class="appbar"><div><small>Seduta ${w.sessionCode}</small><strong>Esercizio</strong></div><button id="backWorkout" class="btn">Esercizi</button></div>
   <div class="content detail"><div class="ey">Esercizio</div><h2>${esc(e.name)}</h2>
     <div class="infogrid"><div class="ibox"><small>Serie × reps</small><b>${e.sets} × ${e.repsMin}-${e.repsMax}</b></div><div class="ibox"><small>Recupero</small><b>${restLabel(e.restSec)}</b></div><div class="ibox"><small>Ultima volta</small><b>${esc(last)}</b></div><div class="ibox"><small>Cadenza</small><b>${esc(e.tempo||'—')}</b></div></div>
     <div class="section"><h3>Serie</h3><span>tocca kg/reps per modificare</span></div>

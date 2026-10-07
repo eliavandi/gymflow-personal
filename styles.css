@@ -568,3 +568,41 @@ body{
     font-size:9.25px !important;
   }
 }
+
+
+/* ===== v9 WORKOUT UX SEMPLIFICATA ===== */
+.simplehero{background:linear-gradient(180deg,#12191f,#0f151a);border:1px solid #313c46;border-radius:22px;padding:20px}
+.simplehero h1{margin:7px 0 6px;font-size:40px;line-height:.92;text-transform:uppercase;letter-spacing:-.055em}
+.simplehero>p{margin:0 0 16px;color:#9ba7b0;font-size:10px;line-height:1.45}
+.sessionchoices{display:grid;gap:8px}
+.sessionchoice{width:100%;display:grid;grid-template-columns:48px 1fr 20px;align-items:center;gap:10px;min-height:70px;padding:10px 12px;background:#10161c;border:1px solid #2d3842;border-radius:16px;color:#fff;text-align:left}
+.sessionchoice:active{transform:scale(.992)}
+.sessionletter{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;background:#d8ff2f;color:#080a0d;font-size:24px;font-weight:950}
+.sessionchoicebody b{display:block;font-size:13px;text-transform:uppercase}
+.sessionchoicebody span{display:block;margin-top:4px;color:#94a0aa;font-size:9px}
+.sessionarrow{color:#9aa5ad;font-size:24px}
+.activework{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;padding:13px;border:1px solid #536829;background:linear-gradient(180deg,#18200f,#12180e);border-radius:16px}
+.activework small,.activework b,.activework span{display:block}
+.activework small{color:#bbcf82;font-size:7px;font-weight:950;letter-spacing:.1em}
+.activework b{margin-top:3px;font-size:14px;text-transform:uppercase}
+.activework span{margin-top:3px;color:#a7b28d;font-size:8px}
+.activeworkactions{display:flex;gap:6px}
+.dangerbtn{color:#ff9d96!important}
+.workoutchooser{margin-bottom:4px}
+.workprogress{padding:13px 14px;border:1px solid #2d3842;background:#10161c;border-radius:16px}
+.workprogress>div:first-child{display:flex;align-items:baseline;gap:7px}
+.workprogress b{font-size:22px}
+.workprogress span{color:#94a0aa;font-size:9px;text-transform:uppercase}
+.progressbar{height:7px;margin-top:10px;overflow:hidden;border-radius:999px;background:#202831}
+.progressbar i{display:block;height:100%;border-radius:999px;background:#d8ff2f}
+.exercisecomplete{border-color:#506129!important;background:#12180f!important}
+.workoutactions{display:grid;gap:8px;margin-top:18px}
+.cancelwork{width:100%;border:0;background:transparent;color:#ff8e87;padding:12px;font-size:9px;font-weight:900;text-transform:uppercase}
+.workoutbar{align-items:center!important}
+@media(max-width:650px){
+  .simplehero{padding:17px}
+  .simplehero h1{font-size:36px}
+  .sessionchoice{min-height:68px}
+  .activework{align-items:flex-start}
+  .activeworkactions{flex-direction:column}
+}

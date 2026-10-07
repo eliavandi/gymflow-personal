@@ -495,6 +495,13 @@ function applyMutation(state,m){
     let w=state.workouts.find(x=>x.id===p.workoutId);
     if(!w&&p.workout){w=structuredClone(p.workout);state.workouts.push(w);}
     if(w){w.status='completed';w.finishedAt=p.finishedAt||nowIso();w.updatedAt=m.createdAt||nowIso();}
+  }else if(m.type==='cancel_workout'){
+    const w=state.workouts.find(x=>x.id===p.workoutId);
+    if(w){
+      w.status='cancelled';
+      w.cancelledAt=p.cancelledAt||nowIso();
+      w.updatedAt=m.createdAt||nowIso();
+    }
   }else if(m.type==='save_program'){
     state.program=normalizeProgramInput(p.program,state.program,false);
   }
