@@ -1,12 +1,12 @@
 {
   "name": "gymflow-personal",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
     "dev": "node --watch server.mjs",
-    "check": "node --check server.mjs && node --check public/app.js && node --check public/offline-db.js && node --check public/sync.js && node --check public/sw.js"
+    "check": "node --check server.mjs && node --check app.js && node --check sync.js && node --check offline-db.js && node --check sw.js"
   },
   "engines": {
     "node": ">=22"
