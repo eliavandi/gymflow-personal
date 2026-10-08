@@ -1,5 +1,5 @@
-const CACHE='gymflow-auto-update-v4';
-const SHELL=['/','/index.html','/offline-db.js','/sync.js','/icon-192.png','/icon-512.png'];
+const CACHE='gymflow-daily-v6';
+const SHELL=['/','/index.html','/offline-db.js','/sync.js','/today-model.js','/icon-192.png','/icon-512.png'];
 
 self.addEventListener('install',event=>{
   event.waitUntil(

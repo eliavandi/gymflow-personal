@@ -1,4 +1,5 @@
 import {login,logout,localAuth,bootstrap,saveState,mutate,flush,initSync} from './sync.js';
+import {localDayKey,weeklyActivity,todayTasks} from './today-model.js';
 
 const app=document.getElementById('app');
 const toastEl=document.getElementById('toast');
@@ -11,6 +12,15 @@ let programSaveTimer=null;
 let timers=new Map();
 let installPrompt=null;
 let importDraft=null;
+const openSessions=new Set();
+const openExercises=new Set();
+let selectedHomeDay=null;
+let homeDate=null;
+
+function icon(name){
+  const paths={home:'<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',workout:'<path d="M6 5v14M3 8v8M18 5v14M21 8v8M6 12h12"/>',program:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h4"/>',history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/>',profile:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',chevron:'<path d="m6 9 6 6 6-6"/>',check:'<path d="m5 12 4 4L19 6"/>'};
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.arrow}</svg>`;
+}
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const today=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
@@ -87,7 +97,7 @@ function sessionChoicesHtml(){
         <b>Seduta ${esc(s.code)}</b>
         <span>${s.exercises.length} esercizi · ultima: ${esc(when)}</span>
       </div>
-      <div class="sessionarrow">›</div>
+      <div class="sessionarrow">${icon('arrow')}</div>
     </button>`;
   }).join('')}</div>`;
 }
@@ -108,20 +118,23 @@ window.addEventListener('gymflow-sync',e=>{
   let el=document.getElementById('syncBadge');
   if(!el){el=document.createElement('div');el.id='syncBadge';document.body.appendChild(el);}
   el.className='syncbadge '+(d.online?'online':'offline');
-  el.textContent=!d.online?`OFFLINE · ${d.pending||0} DA SINCRONIZZARE`:d.pending?`SYNC · ${d.pending}`:'✓ SALVATO';
+  el.textContent=!d.online?`Offline · ${d.pending||0} in attesa`:d.error?'Salvato sul dispositivo · riprovo':d.pending?`Sincronizzazione · ${d.pending}`:'Sincronizzato';
+});
+
+window.addEventListener('gymflow-program-refresh',e=>{
+  if(!state)return;
+  clearTimeout(programSaveTimer);programSaveTimer=null;
+  state.program=e.detail.program;
+  if(view==='program')renderProgram();
+  if(view==='home')renderHome();
+  toast('Scheda aggiornata: le modifiche alla vecchia scheda non sono state applicate.',5000);
 });
 
 function shell(content){
-  return `<div class="shell"><div class="brandrow"><div><div class="brand">GymFlow</div><div class="tag">allenamento personale · offline first</div></div><button id="logoutBtn" class="btn">Esci</button></div><div class="phone">${content}</div></div>`;
+  return `<div class="shell"><header class="brandrow"><div class="brand"><span class="brandmark" aria-hidden="true">///</span> GymFlow<span class="branddot">.</span></div><button id="logoutBtn" class="btn">Esci</button></header><main class="phone">${content}</main></div>`;
 }
 function nav(active){
-  return `<div class="nav five">
-    <button data-nav="home" class="${active==='home'?'active':''}">Oggi</button>
-    <button data-nav="workout" class="${active==='workout'?'active':''}">Workout</button>
-    <button data-nav="program" class="${active==='program'?'active':''}">Scheda</button>
-    <button data-nav="history" class="${active==='history'?'active':''}">Storico</button>
-    <button data-nav="profile" class="${active==='profile'?'active':''}">Profilo</button>
-  </div>`;
+  return `<nav class="nav five" aria-label="Navigazione principale">${[['home','Oggi'],['workout','Workout'],['program','Scheda'],['history','Storico'],['profile','Profilo']].map(([key,label])=>`<button data-nav="${key}" class="${active===key?'active':''}" ${active===key?'aria-current="page"':''}>${icon(key)}<span>${label}</span></button>`).join('')}</nav>`;
 }
 function bindNav(){
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{view=b.dataset.nav;render();});
@@ -150,65 +163,109 @@ function render(){
 
 function renderHome(){
   const c=getCheckin()||{};
-  const aw=activeWorkout();
-  app.innerHTML=shell(`<div class="appbar"><div><small>${new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})}</small><strong>Ciao ${esc(state.profile.firstName)}</strong></div></div>
-  <div class="content">
-    ${aw?`<div class="activework">
-      <div><small>ALLENAMENTO IN CORSO</small><b>Seduta ${esc(aw.sessionCode)}</b><span>${completedSetCount(aw)} serie completate</span></div>
-      <div class="activeworkactions"><button id="resume" class="btn white">Riprendi</button><button id="cancelFromHome" class="btn dangerbtn">Annulla</button></div>
-    </div>`:''}
-
-    <div class="simplehero">
-      <div class="ey">Scegli liberamente</div>
-      <h1>Let's do it</h1>
-      <p>Nessun ordine obbligatorio: puoi fare A, B o C quando vuoi.</p>
-      ${sessionChoicesHtml()}
+  const now=new Date(),day=today(),week=weeklyActivity(state.workouts,now);
+  if(homeDate!==day){selectedHomeDay=day;homeDate=day;}
+  if(!week.days.some(d=>d.key===selectedHomeDay))selectedHomeDay=day;
+  const tasks=todayTasks(c,state.workouts,now),done=tasks.filter(t=>t.done).length;
+  const missing=tasks.filter(t=>!t.done).map(t=>t.label.toLowerCase());
+  const range=week.days[0].date.toLocaleDateString('it-IT',{day:'numeric'})+'–'+week.days[6].date.toLocaleDateString('it-IT',{day:'numeric',month:'short'});
+  app.innerHTML=shell(`<div class="appbar dashboardbar"><div><small>${now.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})}</small><h1>La tua giornata<span class="branddot">.</span></h1></div><div class="daycompletion" aria-label="${done} di 4 attività registrate"><b>${done}<span>/4</span></b><small>completate</small></div></div>
+  <div class="content dashboard">
+    <div class="dailyagenda" aria-live="polite"><span>${missing.length?'Da completare: '+missing.join(', '):'Tutto registrato per oggi.'}</span><div class="tasktrack" aria-hidden="true">${tasks.map(t=>`<i class="${t.done?'done':''}"></i>`).join('')}</div></div>
+    <div class="measureheading"><h2>Peso e misure</h2><button id="dailyNotes" class="textlink">${c.notes?'Le tue note':'＋ Nota'}</button></div>
+    <div class="measurestrip">
+      <button id="editWeight" class="measureaction ${c.weight>0?'recorded':''}" aria-label="${c.weight>0?'Modifica peso, '+c.weight+' kg':'Inserisci il peso di oggi'}"><span>Peso <small>kg</small></span><strong>${c.weight>0?esc(String(c.weight).replace('.',',')):'—'}</strong><small>${c.weight>0?'Registrato oggi':'Inserisci il peso'} ${icon(c.weight>0?'check':'arrow')}</small></button>
+      <button id="editWaist" class="measureaction ${c.waist>0?'recorded':''}" aria-label="${c.waist>0?'Modifica circonferenza vita, '+c.waist+' cm':'Inserisci la circonferenza vita di oggi'}"><span>Vita <small>cm</small></span><strong>${c.waist>0?esc(String(c.waist).replace('.',',')):'—'}</strong><small>${c.waist>0?'Registrata oggi':'Inserisci le misure'} ${icon(c.waist>0?'check':'arrow')}</small></button>
     </div>
-
-    <div class="section recenttitle"><h3>Ultimi allenamenti</h3><span>ordine e cadenza</span></div>
-    <div class="recentlist">${recentWorkoutHtml(3)}</div>
-
-    <div class="section"><h3>Check-in di oggi</h3><span>salvataggio automatico</span></div>
-    <div class="checkgrid">
-      <div class="checkitem"><label>Peso · kg</label><input id="weight" type="number" step="0.1" value="${c.weight??''}" placeholder="Inserisci"></div>
-      <div class="checkitem"><label>Vita · cm</label><input id="waist" type="number" step="0.1" value="${c.waist??''}" placeholder="Inserisci"></div>
-      <div class="checkitem full"><label>Dieta</label><div class="diettoggle"><button data-diet="rispettata" class="${c.diet==='rispettata'?'active':''}">✓ Rispettata</button><button data-diet="non_rispettata" class="${c.diet==='non_rispettata'?'active':''}">✕ Non rispettata</button></div></div>
-      <div class="checkitem full"><label>Note</label><input id="notes" value="${esc(c.notes||'')}" placeholder="Opzionale"></div>
-    </div>
-    <div id="autosaveText" class="autosave">Ogni modifica viene salvata automaticamente sul dispositivo.</div>
-
-    <div class="quickgrid">
-      <button id="programQuick" class="quick"><b>Gestisci scheda</b><span>Importa Excel o modifica A/B/C →</span></button>
-      <button id="historyQuick" class="quick"><b>Storico completo</b><span>Dati e allenamenti →</span></button>
-    </div>
+    <section class="weeksection" aria-labelledby="weekTitle">
+      <div class="weekheading"><h2 id="weekTitle">Questa settimana</h2><span>${range}</span></div>
+      <div class="weekstats"><strong>${week.total}</strong><span>${week.total===1?'allenamento':'allenamenti'} <small>· ${week.activeDays} ${week.activeDays===1?'giorno attivo':'giorni attivi'}</small></span></div>
+      <div class="weekcalendar" aria-label="Allenamenti della settimana">${week.days.map(d=>{
+        const trained=d.workouts.length>0,selected=d.key===selectedHomeDay;
+        const description=d.date.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'})+', '+(trained?d.workouts.length+' allenamenti completati':'nessun allenamento completato');
+        return `<button class="weekdate ${trained?'trained':''} ${d.key===day?'istoday':''} ${selected?'selected':''}" data-calendar-day="${d.key}" aria-pressed="${selected}" ${d.key===day?'aria-current="date"':''} aria-label="${esc(description)}"><span>${d.date.toLocaleDateString('it-IT',{weekday:'short'}).slice(0,3)}</span><b>${d.date.getDate()}</b><small>${trained?esc(d.workouts.map(w=>w.sessionCode).join('·')):d.key===day?'oggi':'·'}</small></button>`;
+      }).join('')}</div>
+    </section>
+    <div id="dayActivity" class="dayactivity" aria-live="polite">${dayActivityHtml(week)}</div>
+    <section class="dietdashboard" aria-labelledby="dietLabel"><div class="dietheading"><h2 id="dietLabel">${c.diet?'Dieta registrata':'Come va la dieta?'}</h2><span>${c.diet?icon('check'):'Da aggiornare'}</span></div><div class="diettoggle" role="group" aria-labelledby="dietLabel"><button data-diet="rispettata" aria-pressed="${c.diet==='rispettata'}" class="${c.diet==='rispettata'?'active':''}">${c.diet==='rispettata'?'✓ ':''}Rispettata</button><button data-diet="non_rispettata" aria-pressed="${c.diet==='non_rispettata'}" class="${c.diet==='non_rispettata'?'active':''}">${c.diet==='non_rispettata'?'✓ ':''}Non rispettata</button></div></section>
   </div>${nav('home')}`);
   bindNav();
-  bindSessionChoices();
-  if(document.getElementById('resume'))document.getElementById('resume').onclick=()=>{view='workout';render();};
-  if(document.getElementById('cancelFromHome'))document.getElementById('cancelFromHome').onclick=()=>cancelWorkout(activeWorkout());
-  document.getElementById('historyQuick').onclick=()=>{view='history';render();};
-  document.getElementById('programQuick').onclick=()=>{view='program';render();};
-  document.querySelectorAll('[data-open-history]').forEach(b=>b.onclick=()=>{view='history';render();});
-  ['weight','waist','notes'].forEach(id=>document.getElementById(id).addEventListener('input',scheduleCheckinSave));
-  document.querySelectorAll('[data-diet]').forEach(b=>b.onclick=()=>{
-    document.querySelectorAll('[data-diet]').forEach(x=>x.classList.remove('active'));b.classList.add('active');scheduleCheckinSave();
+  document.getElementById('editWeight').onclick=()=>openDailyCheckin('weight');
+  document.getElementById('editWaist').onclick=()=>openDailyCheckin('waist');
+  document.getElementById('dailyNotes').onclick=()=>openDailyCheckin('notes');
+  document.querySelectorAll('[data-calendar-day]').forEach(b=>b.onclick=()=>{
+    selectedHomeDay=b.dataset.calendarDay;
+    document.querySelectorAll('[data-calendar-day]').forEach(x=>{const active=x.dataset.calendarDay===selectedHomeDay;x.classList.toggle('selected',active);x.setAttribute('aria-pressed',String(active));});
+    document.getElementById('dayActivity').innerHTML=dayActivityHtml(week);bindDayActivity();
   });
+  document.querySelectorAll('[data-diet]').forEach(b=>b.onclick=()=>{
+    const value=b.dataset.diet;queueCheckin({diet:value});
+    document.querySelector(`[data-diet="${value}"]`)?.focus({preventScroll:true});
+  });
+  bindDayActivity();
 }
-function scheduleCheckinSave(){
-  const t=document.getElementById('autosaveText');if(t)t.textContent='Salvataggio…';
-  clearTimeout(checkSaveTimer);checkSaveTimer=setTimeout(saveCheckin,400);
+function dayActivityHtml(week){
+  const day=week.days.find(d=>d.key===selectedHomeDay),isToday=day.key===today();
+  const aw=isToday?activeWorkout():null,workouts=day.workouts;
+  let title,detail,action,label,status='';
+  if(aw){
+    title=`Seduta ${esc(aw.sessionCode)} in corso`;detail=`${completedSetCount(aw)} serie registrate · riprendi quando vuoi`;action='workout';label='Riprendi';status='ongoing';
+  }else if(workouts.length){
+    title=isToday?'Allenamento completato!':day.date.toLocaleDateString('it-IT',{weekday:'long',day:'numeric'});
+    detail=workouts.map(w=>`Seduta ${esc(w.sessionCode)} · ${completedSetCount(w)} serie`).join(' / ');
+    action='history';label='Vedi';status='completed';
+  }else{
+    title=isToday?'Oggi non ti sei ancora allenato':day.date.toLocaleDateString('it-IT',{weekday:'long',day:'numeric'});
+    detail=isToday?'Quando vuoi, la tua scheda è pronta.':day.key>today()?'Giornata futura.':'Nessun allenamento registrato.';
+    action=isToday?'workout':'today';label=isToday?'Allenati':'Oggi';
+  }
+  return `<div class="daystatus ${status}"><span class="daystatusicon">${icon(status==='completed'?'check':'workout')}</span><div><b>${title}</b><small>${detail}</small></div><button class="dayaction" data-day-action="${action}">${label} ${icon('arrow')}</button></div>`;
 }
-async function saveCheckin(){
+function bindDayActivity(){
+  document.querySelector('[data-day-action]').onclick=e=>{
+    const action=e.currentTarget.dataset.dayAction;
+    if(action==='today'){selectedHomeDay=today();renderHome();}
+    else{view=action;render();}
+  };
+}
+function openDailyCheckin(field){
+  const c=getCheckin()||{},origin=field==='weight'?'editWeight':field==='waist'?'editWaist':'dailyNotes';
+  const dialog=document.createElement('dialog');dialog.className='checkinDialog';dialog.id='dailyCheckinDialog';
+  dialog.setAttribute('aria-labelledby','checkinDialogTitle');
+  dialog.innerHTML=`<form id="dailyCheckinForm"><div class="dialogheading"><div><div class="ey">Il check-in di oggi</div><h2 id="checkinDialogTitle">Peso e misure</h2></div><button type="button" id="closeCheckin" class="iconbtn" aria-label="Chiudi">×</button></div><div class="dialogmetrics"><label for="weight">Peso · kg<input id="weight" type="number" min="1" step="0.1" inputmode="decimal" value="${c.weight??''}" placeholder="Es. 80,5"></label><label for="waist">Vita · cm<input id="waist" type="number" min="1" step="0.1" inputmode="decimal" value="${c.waist??''}" placeholder="Es. 84"></label></div><label class="dialognotes" for="notes">Note della giornata<input id="notes" value="${esc(c.notes||'')}" placeholder="Energia, sonno, come ti senti…"></label><div id="autosaveText" class="autosave" role="status">Salvataggio automatico, anche offline</div><button class="start" type="submit">Fatto ${icon('check')}</button></form>`;
+  document.body.appendChild(dialog);
+  const save=()=>{
+    const weight=dialog.querySelector('#weight'),waist=dialog.querySelector('#waist');
+    if(!weight.validity.valid||!waist.validity.valid)return;
+    queueCheckin({weight:weight.value===''?null:Number(weight.value),waist:waist.value===''?null:Number(waist.value),notes:dialog.querySelector('#notes').value.trim()});
+  };
+  dialog.querySelectorAll('input').forEach(input=>input.addEventListener('input',save));
+  dialog.querySelector('form').onsubmit=e=>{e.preventDefault();save();dialog.close();};
+  dialog.querySelector('#closeCheckin').onclick=()=>dialog.close();
+  dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});
+  dialog.onclose=()=>{dialog.remove();if(view==='home'&&state){renderHome();document.getElementById(origin)?.focus({preventScroll:true});}};
+  dialog.showModal();dialog.querySelector('#'+field).focus();
+}
+function queueCheckin(patch){
   const old=getCheckin()||{id:uid('check'),date:today()};
-  const row={...old,date:today(),
-    weight:document.getElementById('weight').value===''?null:Number(document.getElementById('weight').value),
-    waist:document.getElementById('waist').value===''?null:Number(document.getElementById('waist').value),
-    diet:document.querySelector('[data-diet].active')?.dataset.diet||null,
-    notes:document.getElementById('notes').value.trim(),updatedAt:new Date().toISOString()};
+  const row={...old,...patch,date:today(),updatedAt:new Date().toISOString()};
   const i=state.checkins.findIndex(x=>x.date===row.date);if(i>=0)state.checkins[i]=row;else state.checkins.push(row);
-  await mutate('upsert_checkin',row,state);
-  const t=document.getElementById('autosaveText');if(t)t.textContent=navigator.onLine?'✓ Salvato · sincronizzazione automatica':'✓ Salvato offline sul dispositivo';
+  const snapshot=state;
+  clearTimeout(checkSaveTimer);checkSaveTimer=setTimeout(()=>saveCheckin(row,snapshot),400);
+  if(view==='home')renderHome();
+  const t=document.getElementById('autosaveText');if(t)t.textContent='Salvataggio…';
 }
+async function saveCheckin(row,snapshot){
+  try{
+    await mutate('upsert_checkin',row,snapshot);
+    const t=document.getElementById('autosaveText');if(t)t.textContent=navigator.onLine?'✓ Salvato · sincronizzazione automatica':'✓ Salvato offline sul dispositivo';
+  }catch{toast('Salvataggio non riuscito. Riprova.',4000);}
+}
+function refreshHomeDate(){
+  if(state&&view==='home'&&homeDate!==today()&&!document.getElementById('dailyCheckinDialog'))renderHome();
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshHomeDate();});
+setInterval(refreshHomeDate,60000);
 
 async function startWorkout(code){
   const target=code||selectedSession||'A';
@@ -275,12 +332,7 @@ function renderWorkout(){
   if(!w){
     app.innerHTML=shell(`<div class="appbar"><div><small>Allenamento</small><strong>Scegli la seduta</strong></div></div>
     <div class="content">
-      <div class="simplehero workoutchooser">
-        <div class="ey">Ordine libero</div>
-        <h1>A, B o C?</h1>
-        <p>Scegli quella che vuoi fare oggi. Non c'è una sequenza obbligatoria.</p>
-        ${sessionChoicesHtml()}
-      </div>
+      ${sessionChoicesHtml()}
       <div class="section recenttitle"><h3>Ultime sedute</h3><span>ordine e cadenza</span></div>
       <div class="recentlist">${recentWorkoutHtml(3)}</div>
     </div>${nav('workout')}`);
@@ -398,15 +450,16 @@ function startTimer(box,e,w,n,endsAt){
 /* ===== GESTIONE SCHEDA ===== */
 function renderProgram(){
   app.innerHTML=shell(`<div class="appbar"><div><small>La tua programmazione</small><strong>Scheda</strong></div></div>
-  <div class="content">
+  <div class="content programcontent">
     <div class="importcard">
-      <div><div class="ey">Importazione automatica</div><h3>Carica il file Excel del PT</h3><p>GymFlow prova a riconoscere da solo sedute A/B/C, esercizi, serie, reps, recuperi, carichi, cadenza e note.</p></div>
+      <div><div class="ey">Dal tuo personal trainer</div><h3>La tua scheda, in un file.</h3><p>Importa l’Excel e controlla l’anteprima prima di confermare.</p></div>
       <input id="excelFile" type="file" accept=".xlsx,.xlsm,.csv" class="hidden">
       <button id="importExcel" class="start">Importa Excel</button>
       <small>Formati: .xlsx, .xlsm, .csv. I vecchi .xls vanno prima salvati come .xlsx.</small>
     </div>
 
-    <div class="programtop"><div><div class="ey">Scheda attuale</div><b>${esc(state.program.title)}</b><small>v${state.program.version}${state.program.sourceFileName?' · '+esc(state.program.sourceFileName):''}</small></div><div id="programSaved" class="programsaved">✓ Salvata</div></div>
+    <div class="programtop"><div><div class="ey">Il tuo programma</div><b>${esc(state.program.title)}</b><small>${state.program.sessions.reduce((n,s)=>n+s.exercises.length,0)} esercizi · ${state.program.sessions.length} sedute${state.program.sourceFileName?' · '+esc(state.program.sourceFileName):''}</small></div><div id="programSaved" class="programsaved" role="status">✓ Salvata</div></div>
+    <p class="editorhint">Apri una seduta, poi un esercizio per modificarlo.</p>
 
     ${state.program.sessions.map(sessionEditorHtml).join('')}
   </div>${nav('program')}`);
@@ -416,14 +469,16 @@ function renderProgram(){
   bindProgramEditor();
 }
 function sessionEditorHtml(s){
-  return `<section class="sessionedit" data-session-edit="${s.code}">
-    <div class="sessionhead"><div><div class="ey">Allenamento</div><h3>Seduta ${s.code}</h3></div><button class="btn addexercise" data-add="${s.code}">+ Esercizio</button></div>
+  return `<details class="sessionedit" data-session-edit="${s.code}" ${openSessions.has(s.code)?'open':''}>
+    <summary class="sessionhead"><span class="sessioninitial">${esc(s.code)}</span><span><b>Seduta ${esc(s.code)}</b><small>${s.exercises.length} esercizi · ${s.exercises.reduce((n,e)=>n+Number(e.sets||0),0)} serie</small></span><span class="disclosure">${icon('chevron')}</span></summary>
     <div class="exerciseeditlist">${s.exercises.length?s.exercises.map((e,i)=>exerciseEditorHtml(s,e,i)).join(''):'<div class="emptyprogram">Nessun esercizio. Aggiungine uno o importa il file Excel.</div>'}</div>
-  </section>`;
+    <button class="textlink addexercise" data-add="${s.code}">+ Aggiungi esercizio</button>
+  </details>`;
 }
 function exerciseEditorHtml(s,e,i){
-  return `<div class="exedit" data-edit-ex="${s.code}:${i}">
-    <div class="exedithead"><b>${i+1}. ${esc(e.name)}</b><div><button class="iconbtn moveup" title="Sposta su">↑</button><button class="iconbtn movedown" title="Sposta giù">↓</button><button class="iconbtn danger deleteex" title="Elimina">×</button></div></div>
+  return `<details class="exedit" data-edit-ex="${s.code}:${i}" data-exercise-id="${esc(e.id)}" ${openExercises.has(e.id)?'open':''}>
+    <summary class="exedithead"><span class="exnumber">${String(i+1).padStart(2,'0')}</span><span class="exheading"><b>${esc(e.name)}</b><small class="exsummary">${exerciseSummary(e)}</small></span><span class="disclosure">${icon('chevron')}</span></summary>
+    <div class="exeditbody"><div class="exedittools"><span>Modifica esercizio</span><div><button class="iconbtn moveup" aria-label="Sposta su" ${i===0?'disabled':''}>↑</button><button class="iconbtn movedown" aria-label="Sposta giù" ${i===s.exercises.length-1?'disabled':''}>↓</button><button class="iconbtn danger deleteex" aria-label="Elimina esercizio">×</button></div></div>
     <div class="editgrid">
       <label class="span2">Esercizio<input data-field="name" value="${esc(e.name)}"></label>
       <label>Serie<input data-field="sets" type="number" min="1" value="${e.sets}"></label>
@@ -434,11 +489,14 @@ function exerciseEditorHtml(s,e,i){
       <label>Reps proposte<input data-field="suggestedReps" type="number" min="1" value="${e.suggestedReps||e.repsMax}"></label>
       <label>Cadenza<input data-field="tempo" value="${esc(e.tempo||'—')}"></label>
       <label class="span2">Note<input data-field="note" value="${esc(e.note||'')}"></label>
-    </div>
-  </div>`;
+    </div></div>
+  </details>`;
 }
+function exerciseSummary(e){return `${e.sets} serie × ${e.repsMin}${e.repsMax!==e.repsMin?'–'+e.repsMax:''} reps · ${restLabel(e.restSec)} recupero`;}
 function bindProgramEditor(){
+  document.querySelectorAll('[data-session-edit]').forEach(el=>el.addEventListener('toggle',()=>{if(el.open)openSessions.add(el.dataset.sessionEdit);else openSessions.delete(el.dataset.sessionEdit);}));
   document.querySelectorAll('[data-edit-ex]').forEach(card=>{
+    card.addEventListener('toggle',()=>{if(card.open)openExercises.add(card.dataset.exerciseId);else openExercises.delete(card.dataset.exerciseId);});
     const [code,idxS]=card.dataset.editEx.split(':'),idx=Number(idxS);
     card.querySelectorAll('[data-field]').forEach(input=>{
       input.addEventListener('input',()=>{
@@ -446,7 +504,8 @@ function bindProgramEditor(){
         if(['sets','repsMin','repsMax','suggestedWeight','suggestedReps'].includes(field))e[field]=Number(input.value)||0;
         else if(field==='restSec')e.restSec=parseRestInput(input.value);
         else e[field]=input.value;
-        if(field==='name')card.querySelector('.exedithead>b').textContent=`${idx+1}. ${input.value||'Esercizio'}`;
+        if(field==='name')card.querySelector('.exheading>b').textContent=input.value||'Esercizio';
+        card.querySelector('.exsummary').textContent=exerciseSummary(e);
         scheduleProgramSave();
       });
     });
@@ -462,6 +521,7 @@ function bindProgramEditor(){
 function addExercise(code){
   const s=state.program.sessions.find(x=>x.code===code);
   s.exercises.push({id:uid(code.toLowerCase()),name:'Nuovo esercizio',sets:3,repsMin:8,repsMax:10,restSec:90,tempo:'—',note:'',suggestedWeight:0,suggestedReps:10});
+  openSessions.add(code);openExercises.add(s.exercises.at(-1).id);
   saveProgramImmediate();
 }
 function moveExercise(code,idx,delta){
@@ -474,12 +534,14 @@ function scheduleProgramSave(){
   clearTimeout(programSaveTimer);programSaveTimer=setTimeout(saveProgram,700);
 }
 async function saveProgram(){
+  clearTimeout(programSaveTimer);programSaveTimer=null;
+  if(!state)return;
   state.program.updatedAt=new Date().toISOString();
   await mutate('save_program',{program:state.program},state);
   const x=document.getElementById('programSaved');if(x)x.textContent=navigator.onLine?'✓ Salvata':'✓ Salvata offline';
 }
 async function saveProgramImmediate(){
-  await saveProgram();renderProgram();
+  await saveProgram();if(state&&view==='program')renderProgram();
 }
 
 async function handleExcelFile(e){
@@ -520,11 +582,14 @@ async function commitImport(){
   if(!importDraft)return;
   const b=document.getElementById('confirmImport');b.disabled=true;b.textContent='Salvataggio…';
   try{
+    if(programSaveTimer)await saveProgram();
+    if(!await flush())throw new Error('Attendi la sincronizzazione delle modifiche e riprova. La scheda attuale è al sicuro.');
     const r=await fetch('/api/program/replace',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({program:importDraft})});
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(d.error||'Errore salvataggio');
     state.program=d.program;
     await saveState(state);
+    openSessions.clear();openExercises.clear();
     importDraft=null;document.getElementById('importModal')?.remove();
     selectedSession='A';toast('Scheda importata correttamente');renderProgram();
   }catch(err){toast(err.message,4500);b.disabled=false;b.textContent='Usa questa scheda';}

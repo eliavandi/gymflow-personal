@@ -22,6 +22,19 @@ const BUILD_ID = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
 let pgPool = null;
 let writeQueue = Promise.resolve();
+let stateQueue = Promise.resolve();
+
+// Keep the complete read/change/write cycle ordered, not just the SQL writes.
+function updateState(change){
+  const job=stateQueue.then(async()=>{
+    const state=await readState();
+    const result=await change(state);
+    await writeState(state);
+    return result;
+  });
+  stateQueue=job.catch(()=>{});
+  return job;
+}
 
 const nowIso = () => new Date().toISOString();
 const uid = (prefix='id') => `${prefix}_${crypto.randomUUID().replaceAll('-','')}`;
@@ -123,7 +136,7 @@ async function writeState(state){
   state=normalizeState(state);
   if(USE_POSTGRES){
     const pool=await getPool();
-    writeQueue=writeQueue.then(()=>pool.query(
+    writeQueue=writeQueue.catch(()=>{}).then(()=>pool.query(
       `INSERT INTO gymflow_state (id,data,updated_at) VALUES (1,$1::jsonb,now())
        ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data,updated_at=now()`,
       [JSON.stringify(state)]
@@ -550,6 +563,12 @@ function bootstrap(state){
 function applyMutation(state,m){
   if(state.appliedMutations.includes(m.id))return;
   const p=m.payload||{};
+  // An offline edit belongs to one generation of a program. Importing a new
+  // program changes its id/version; old devices must never restore the old one.
+  if(m.type==='save_program' && (
+    p.program?.id!==state.program.id ||
+    Number(p.program?.version)!==Number(state.program.version)
+  ))return 'stale_program';
   if(m.type==='upsert_checkin'){
     let row=state.checkins.find(x=>x.date===p.date);
     if(row)Object.assign(row,p,{updatedAt:m.createdAt||nowIso()});
@@ -675,10 +694,16 @@ async function handleApi(req,res,url){
   if(p==='/api/sync'&&method==='POST'){
     const {mutations=[]}=await bodyJson(req);
     if(!Array.isArray(mutations))return json(res,400,{error:'mutations non valido'});
-    const state=await readState();
-    for(const m of mutations){if(m?.id&&m?.type)applyMutation(state,m);}
-    await writeState(state);
-    return json(res,200,{ok:true,applied:mutations.map(m=>m.id)});
+    const result=await updateState(state=>{
+      const applied=[],rejected=[];
+      for(const m of mutations){
+        if(!m?.id||!m?.type)continue;
+        const reason=applyMutation(state,m);
+        if(reason)rejected.push({id:m.id,reason});else applied.push(m.id);
+      }
+      return {ok:true,applied,rejected,...(rejected.length?{program:bootstrap(state).program}:{})};
+    });
+    return json(res,200,result);
   }
 
   if(p==='/api/program/import'&&method==='POST'){
@@ -698,16 +723,17 @@ async function handleApi(req,res,url){
 
   if(p==='/api/program/replace'&&method==='POST'){
     const {program}=await bodyJson(req);
-    const state=await readState();
     if(!program?.sessions)return json(res,400,{error:'Scheda non valida'});
-    state.programHistory.push(structuredClone(state.program));
-    if(state.programHistory.length>30)state.programHistory=state.programHistory.slice(-30);
-    const next=normalizeProgramInput(program,state.program,true);
-    next.sourceType=program.sourceType||'excel';
-    next.sourceFileName=program.sourceFileName||null;
-    state.program=next;
-    await writeState(state);
-    return json(res,200,{program:bootstrap(state).program});
+    const result=await updateState(state=>{
+      state.programHistory.push(structuredClone(state.program));
+      if(state.programHistory.length>30)state.programHistory=state.programHistory.slice(-30);
+      const next=normalizeProgramInput(program,state.program,true);
+      next.sourceType=program.sourceType||'excel';
+      next.sourceFileName=program.sourceFileName||null;
+      state.program=next;
+      return {program:bootstrap(state).program};
+    });
+    return json(res,200,result);
   }
 
   if(p==='/api/export.xlsx'&&method==='GET'){
@@ -770,6 +796,9 @@ async function serveStatic(req,res,url){
   }
 }
 
+export {seedState,parseWorkbook,normalizeProgramInput,applyMutation};
+
+if(path.resolve(process.argv[1]||'')===__filename){
 await ensureState();
 const server=http.createServer(async(req,res)=>{
   try{
@@ -787,3 +816,4 @@ server.listen(PORT,()=>{
   console.log(`Storage: ${USE_POSTGRES?'PostgreSQL cloud':'JSON locale'}`);
   console.log(`Login: ${APP_EMAIL}`);
 });
+}

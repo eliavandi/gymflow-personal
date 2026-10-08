@@ -1,7 +1,7 @@
 import {localStateGet,localStateSet,metaGet,metaSet,outboxAdd,outboxAll,outboxDel,outboxCount} from './offline-db.js';
 
 const mid=()=>`mut_${crypto.randomUUID().replaceAll('-','')}`;
-let syncing=false;
+let syncPromise=null;
 
 function emit(extra={}){
   outboxCount().then(pending=>{
@@ -50,24 +50,37 @@ export async function mutate(type,payload,state){
   return m;
 }
 
-export async function flush(){
-  if(syncing||!navigator.onLine)return;
-  syncing=true;
+export function flush(){
+  if(syncPromise)return syncPromise;
+  if(!navigator.onLine)return Promise.resolve(false);
+  syncPromise=drainOutbox().finally(()=>{syncPromise=null;});
+  return syncPromise;
+}
+
+async function drainOutbox(){
   try{
+    while(navigator.onLine){
     const items=await outboxAll();
-    if(!items.length){emit({synced:true});return;}
+    if(!items.length){emit({synced:true});return true;}
     const r=await fetch('/api/sync',{
       method:'POST',credentials:'include',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({mutations:items})
     });
-    if(!r.ok)return;
+    if(!r.ok){emit({error:true});return false;}
     const d=await r.json().catch(()=>({applied:[]}));
-    const applied=new Set(d.applied||items.map(x=>x.id));
-    for(const item of items)if(applied.has(item.id))await outboxDel(item.id);
+    const acknowledged=new Set([...(d.applied||[]),...(d.rejected||[]).map(x=>x.id)]);
+    if(!acknowledged.size)return false;
+    for(const item of items)if(acknowledged.has(item.id))await outboxDel(item.id);
+    if(d.program){
+      const local=await localStateGet();
+      if(local){local.program=d.program;await localStateSet(local);}
+      window.dispatchEvent(new CustomEvent('gymflow-program-refresh',{detail:{program:d.program}}));
+    }
     emit({synced:true});
-  }catch{}
-  finally{syncing=false;}
+    }
+  }catch{emit({error:true});}
+  return false;
 }
 
 export function initSync(){
