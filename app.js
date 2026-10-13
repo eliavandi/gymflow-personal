@@ -1,5 +1,6 @@
-import {login,logout,localAuth,bootstrap,saveState,mutate,flush,initSync} from './sync.js';
+import {login,logout,localAuth,bootstrap,saveState,mutate,flush,initSync,apiFetch} from './sync.js';
 import {localDayKey,weeklyActivity,todayTasks} from './today-model.js';
+import {validDayKey,historyRange,historyStats,workoutStats} from './history-model.js';
 
 const app=document.getElementById('app');
 const toastEl=document.getElementById('toast');
@@ -7,7 +8,7 @@ let state=null;
 let selectedSession='A';
 let view='home';
 let activeExerciseId=null;
-let checkSaveTimer=null;
+let checkSavePromise=Promise.resolve();
 let programSaveTimer=null;
 let timers=new Map();
 let installPrompt=null;
@@ -16,6 +17,9 @@ const openSessions=new Set();
 const openExercises=new Set();
 let selectedHomeDay=null;
 let homeDate=null;
+let statsPeriod='all';
+let statsRange=null;
+let statsExercise=null;
 
 function icon(name){
   const paths={home:'<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',workout:'<path d="M6 5v14M3 8v8M18 5v14M21 8v8M6 12h12"/>',program:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h4"/>',history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/>',profile:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',chevron:'<path d="m6 9 6 6 6-6"/>',check:'<path d="m5 12 4 4L19 6"/>'};
@@ -121,6 +125,14 @@ window.addEventListener('gymflow-sync',e=>{
   el.textContent=!d.online?`Offline · ${d.pending||0} in attesa`:d.error?'Salvato sul dispositivo · riprovo':d.pending?`Sincronizzazione · ${d.pending}`:'Sincronizzato';
 });
 
+window.addEventListener('gymflow-auth-required',e=>{
+  state=null;
+  importDraft=null;
+  document.getElementById('dailyCheckinDialog')?.close();
+  document.getElementById('importModal')?.remove();
+  loginView(e.detail?.message||'Sessione scaduta. Accedi di nuovo e riprova.');
+});
+
 window.addEventListener('gymflow-program-refresh',e=>{
   if(!state)return;
   clearTimeout(programSaveTimer);programSaveTimer=null;
@@ -177,6 +189,7 @@ function renderHome(){
       <button id="editWeight" class="measureaction ${c.weight>0?'recorded':''}" aria-label="${c.weight>0?'Modifica peso, '+c.weight+' kg':'Inserisci il peso di oggi'}"><span>Peso <small>kg</small></span><strong>${c.weight>0?esc(String(c.weight).replace('.',',')):'—'}</strong><small>${c.weight>0?'Registrato oggi':'Inserisci il peso'} ${icon(c.weight>0?'check':'arrow')}</small></button>
       <button id="editWaist" class="measureaction ${c.waist>0?'recorded':''}" aria-label="${c.waist>0?'Modifica circonferenza vita, '+c.waist+' cm':'Inserisci la circonferenza vita di oggi'}"><span>Vita <small>cm</small></span><strong>${c.waist>0?esc(String(c.waist).replace('.',',')):'—'}</strong><small>${c.waist>0?'Registrata oggi':'Inserisci le misure'} ${icon(c.waist>0?'check':'arrow')}</small></button>
     </div>
+    <button id="pastCheckin" class="textlink pastcheckin">＋ Inserisci dati di un altro giorno ${icon('arrow')}</button>
     <section class="weeksection" aria-labelledby="weekTitle">
       <div class="weekheading"><h2 id="weekTitle">Questa settimana</h2><span>${range}</span></div>
       <div class="weekstats"><strong>${week.total}</strong><span>${week.total===1?'allenamento':'allenamenti'} <small>· ${week.activeDays} ${week.activeDays===1?'giorno attivo':'giorni attivi'}</small></span></div>
@@ -193,6 +206,7 @@ function renderHome(){
   document.getElementById('editWeight').onclick=()=>openDailyCheckin('weight');
   document.getElementById('editWaist').onclick=()=>openDailyCheckin('waist');
   document.getElementById('dailyNotes').onclick=()=>openDailyCheckin('notes');
+  document.getElementById('pastCheckin').onclick=()=>openDailyCheckin('date');
   document.querySelectorAll('[data-calendar-day]').forEach(b=>b.onclick=()=>{
     selectedHomeDay=b.dataset.calendarDay;
     document.querySelectorAll('[data-calendar-day]').forEach(x=>{const active=x.dataset.calendarDay===selectedHomeDay;x.classList.toggle('selected',active);x.setAttribute('aria-pressed',String(active));});
@@ -219,39 +233,55 @@ function dayActivityHtml(week){
     detail=isToday?'Quando vuoi, la tua scheda è pronta.':day.key>today()?'Giornata futura.':'Nessun allenamento registrato.';
     action=isToday?'workout':'today';label=isToday?'Allenati':'Oggi';
   }
-  return `<div class="daystatus ${status}"><span class="daystatusicon">${icon(status==='completed'?'check':'workout')}</span><div><b>${title}</b><small>${detail}</small></div><button class="dayaction" data-day-action="${action}">${label} ${icon('arrow')}</button></div>`;
+  return `<div class="daystatus ${status}"><span class="daystatusicon">${icon(status==='completed'?'check':'workout')}</span><div><b>${title}</b><small>${detail}</small></div><button class="dayaction" data-day-action="${action}">${label} ${icon('arrow')}</button></div>${!isToday&&day.key<today()?`<button class="textlink" id="editCalendarCheckin" data-date="${day.key}">Peso, misure e dieta del ${fmtDate(day.key)} ${icon('arrow')}</button>`:''}`;
 }
 function bindDayActivity(){
+  const edit=document.getElementById('editCalendarCheckin');
+  if(edit)edit.onclick=()=>openDailyCheckin('weight',edit.dataset.date);
   document.querySelector('[data-day-action]').onclick=e=>{
     const action=e.currentTarget.dataset.dayAction;
     if(action==='today'){selectedHomeDay=today();renderHome();}
     else{view=action;render();}
   };
 }
-function openDailyCheckin(field){
-  const c=getCheckin()||{},origin=field==='weight'?'editWeight':field==='waist'?'editWaist':'dailyNotes';
+function openDailyCheckin(field='date',date=today()){
+  let checkinDate=date;
+  const c=getCheckin(date)||{},origin=field==='weight'?'editWeight':field==='waist'?'editWaist':'dailyNotes';
   const dialog=document.createElement('dialog');dialog.className='checkinDialog';dialog.id='dailyCheckinDialog';
   dialog.setAttribute('aria-labelledby','checkinDialogTitle');
-  dialog.innerHTML=`<form id="dailyCheckinForm"><div class="dialogheading"><div><div class="ey">Il check-in di oggi</div><h2 id="checkinDialogTitle">Peso e misure</h2></div><button type="button" id="closeCheckin" class="iconbtn" aria-label="Chiudi">×</button></div><div class="dialogmetrics"><label for="weight">Peso · kg<input id="weight" type="number" min="1" step="0.1" inputmode="decimal" value="${c.weight??''}" placeholder="Es. 80,5"></label><label for="waist">Vita · cm<input id="waist" type="number" min="1" step="0.1" inputmode="decimal" value="${c.waist??''}" placeholder="Es. 84"></label></div><label class="dialognotes" for="notes">Note della giornata<input id="notes" value="${esc(c.notes||'')}" placeholder="Energia, sonno, come ti senti…"></label><div id="autosaveText" class="autosave" role="status">Salvataggio automatico, anche offline</div><button class="start" type="submit">Fatto ${icon('check')}</button></form>`;
+  dialog.innerHTML=`<form id="dailyCheckinForm"><div class="dialogheading"><div><div class="ey">Il tuo diario</div><h2 id="checkinDialogTitle">Check-in giornaliero</h2></div><button type="button" id="closeCheckin" class="iconbtn" aria-label="Chiudi">×</button></div><label class="dialogdate" for="date">Data della registrazione<input id="date" type="date" max="${today()}" required value="${date}"></label><p class="datehint">Scegli qualsiasi giorno passato. Se ci sono già dati, puoi modificarli.</p><div class="dialogmetrics"><label for="weight">Peso · kg<input id="weight" type="number" min="1" step="0.1" inputmode="decimal" value="${c.weight??''}" placeholder="Es. 80,5"></label><label for="waist">Vita · cm<input id="waist" type="number" min="1" step="0.1" inputmode="decimal" value="${c.waist??''}" placeholder="Es. 84"></label></div><label class="dialognotes" for="checkinDiet">Dieta<select id="checkinDiet"><option value="">Non registrata</option><option value="rispettata" ${c.diet==='rispettata'?'selected':''}>Rispettata</option><option value="non_rispettata" ${c.diet==='non_rispettata'?'selected':''}>Non rispettata</option></select></label><label class="dialognotes" for="notes">Note della giornata<textarea id="notes" rows="3" placeholder="Energia, sonno, come ti senti…">${esc(c.notes||'')}</textarea></label><div id="autosaveText" class="autosave" role="status">Salvataggio automatico, anche offline</div><button class="start" type="submit">Fatto ${icon('check')}</button></form>`;
   document.body.appendChild(dialog);
   const save=()=>{
     const weight=dialog.querySelector('#weight'),waist=dialog.querySelector('#waist');
-    if(!weight.validity.valid||!waist.validity.valid)return;
-    queueCheckin({weight:weight.value===''?null:Number(weight.value),waist:waist.value===''?null:Number(waist.value),notes:dialog.querySelector('#notes').value.trim()});
+    const dateInput=dialog.querySelector('#date');
+    if(!dateInput.validity.valid||dateInput.value!==checkinDate||!weight.validity.valid||!waist.validity.valid)return;
+    queueCheckin({weight:weight.value===''?null:Number(weight.value),waist:waist.value===''?null:Number(waist.value),diet:dialog.querySelector('#checkinDiet').value||null,notes:dialog.querySelector('#notes').value.trim()},checkinDate);
   };
-  dialog.querySelectorAll('input').forEach(input=>input.addEventListener('input',save));
-  dialog.querySelector('form').onsubmit=e=>{e.preventDefault();save();dialog.close();};
+  dialog.querySelectorAll('#weight,#waist,#notes').forEach(input=>input.addEventListener('input',save));
+  dialog.querySelector('#checkinDiet').onchange=save;
+  dialog.querySelector('#date').onchange=e=>{
+    if(!e.target.validity.valid||!validDayKey(e.target.value)){e.target.reportValidity();return;}
+    checkinDate=e.target.value;
+    const row=getCheckin(checkinDate)||{};
+    dialog.querySelector('#weight').value=row.weight??'';
+    dialog.querySelector('#waist').value=row.waist??'';
+    dialog.querySelector('#notes').value=row.notes||'';
+    dialog.querySelector('#checkinDiet').value=row.diet||'';
+    dialog.querySelector('#autosaveText').textContent=row.id?'Dati della giornata caricati. Modifica per aggiornare.':'Nessun dato per questa giornata. Inserisci il tuo check-in.';
+  };
+  dialog.querySelector('form').onsubmit=async e=>{e.preventDefault();save();if(await checkSavePromise!==false)dialog.close();};
   dialog.querySelector('#closeCheckin').onclick=()=>dialog.close();
   dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close();}});
-  dialog.onclose=()=>{dialog.remove();if(view==='home'&&state){renderHome();document.getElementById(origin)?.focus({preventScroll:true});}};
+  dialog.onclose=()=>{dialog.remove();if(state){render();document.getElementById(origin)?.focus({preventScroll:true});}};
   dialog.showModal();dialog.querySelector('#'+field).focus();
 }
-function queueCheckin(patch){
-  const old=getCheckin()||{id:uid('check'),date:today()};
-  const row={...old,...patch,date:today(),updatedAt:new Date().toISOString()};
+function queueCheckin(patch,date=today()){
+  if(!state||!validDayKey(date)||date>today())return;
+  const old=getCheckin(date)||{id:uid('check'),date};
+  const row={...old,...patch,date,updatedAt:new Date().toISOString()};
   const i=state.checkins.findIndex(x=>x.date===row.date);if(i>=0)state.checkins[i]=row;else state.checkins.push(row);
   const snapshot=state;
-  clearTimeout(checkSaveTimer);checkSaveTimer=setTimeout(()=>saveCheckin(row,snapshot),400);
+  checkSavePromise=checkSavePromise.then(()=>saveCheckin(row,snapshot));
   if(view==='home')renderHome();
   const t=document.getElementById('autosaveText');if(t)t.textContent='Salvataggio…';
 }
@@ -259,7 +289,8 @@ async function saveCheckin(row,snapshot){
   try{
     await mutate('upsert_checkin',row,snapshot);
     const t=document.getElementById('autosaveText');if(t)t.textContent=navigator.onLine?'✓ Salvato · sincronizzazione automatica':'✓ Salvato offline sul dispositivo';
-  }catch{toast('Salvataggio non riuscito. Riprova.',4000);}
+    return true;
+  }catch{toast('Salvataggio non riuscito. Riprova.',4000);return false;}
 }
 function refreshHomeDate(){
   if(state&&view==='home'&&homeDate!==today()&&!document.getElementById('dailyCheckinDialog'))renderHome();
@@ -550,7 +581,7 @@ async function handleExcelFile(e){
   const btn=document.getElementById('importExcel');btn.disabled=true;btn.textContent='Analisi Excel…';
   try{
     const dataBase64=await fileToBase64(file);
-    const r=await fetch('/api/program/import',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:file.name,dataBase64})});
+    const r=await apiFetch('/api/program/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:file.name,dataBase64})});
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(d.error||'Errore importazione');
     importDraft=d.program;
@@ -584,7 +615,7 @@ async function commitImport(){
   try{
     if(programSaveTimer)await saveProgram();
     if(!await flush())throw new Error('Attendi la sincronizzazione delle modifiche e riprova. La scheda attuale è al sicuro.');
-    const r=await fetch('/api/program/replace',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({program:importDraft})});
+    const r=await apiFetch('/api/program/replace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({program:importDraft})});
     const d=await r.json().catch(()=>({}));
     if(!r.ok)throw new Error(d.error||'Errore salvataggio');
     state.program=d.program;
@@ -596,20 +627,97 @@ async function commitImport(){
 }
 
 /* ===== STORICO ===== */
+const statNumber=(v,digits=1)=>v===null||v===undefined?'—':Number(v).toLocaleString('it-IT',{maximumFractionDigits:digits});
+function trendChart(points,label,unit,color='var(--yellow)'){
+  if(!points.length)return `<div class="chartempty">Nessun dato nel periodo. Aggiungi un check-in o scegli un altro intervallo.</div>`;
+  const width=560,height=185,left=48,right=18,top=20,bottom=34;
+  const values=points.map(p=>p.value),lo=Math.min(...values),hi=Math.max(...values);
+  const pad=Math.max((hi-lo)*.15,hi===0?1:Math.abs(hi)*.005),min=lo-pad,max=hi+pad;
+  const times=points.map(p=>new Date(p.date+'T12:00:00').getTime()),start=times[0],end=times.at(-1);
+  const x=i=>end===start?(width+left-right)/2:left+(times[i]-start)/(end-start)*(width-left-right);
+  const y=value=>top+(max-value)/(max-min)*(height-top-bottom);
+  const path=points.map((p,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
+  const description=`${label}: ${points.length} registrazioni, da ${statNumber(values[0])} a ${statNumber(values.at(-1))} ${unit}.`;
+  return `<div class="trendchart" style="--chart-color:${color}"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(description)}">
+    ${[hi,(hi+lo)/2,lo].filter((v,i,a)=>a.indexOf(v)===i).map(v=>`<line x1="${left}" y1="${y(v)}" x2="${width-right}" y2="${y(v)}" class="chartgrid"/><text x="${left-8}" y="${y(v)+4}" text-anchor="end" class="chartlabel">${statNumber(v)}</text>`).join('')}
+    <path d="${path}" class="chartline"/>
+    ${points.map((p,i)=>`<circle cx="${x(i)}" cy="${y(p.value)}" r="${points.length>60?2:3.5}" class="chartpoint" tabindex="0" role="button" aria-label="${fmtDate(p.date)}: ${statNumber(p.value)} ${unit}" data-chart-reading="${esc(fmtDate(p.date)+': '+statNumber(p.value)+' '+unit)}"><title>${fmtDate(p.date)} · ${statNumber(p.value)} ${unit}</title></circle>`).join('')}
+    <text x="${left}" y="${height-8}" class="chartlabel">${fmtDate(points[0].date)}</text>${end!==start?`<text x="${width-right}" y="${height-8}" text-anchor="end" class="chartlabel">${fmtDate(points.at(-1).date)}</text>`:''}
+  </svg><div class="chartreading" aria-live="polite">${points.length===1?'Prima registrazione. Aggiungi un altro dato per vedere l’andamento.':'Tocca un punto per vedere data e valore.'}</div></div>`;
+}
+function measurementStatsHtml(metric,label,unit,color){
+  return `<section class="statpanel"><div class="statheading"><h3>${label}</h3><span>${metric.points.length} misurazioni</span></div>
+    <div class="measurementstats"><div><strong>${statNumber(metric.last?.value)}<small>${unit}</small></strong><span>${metric.last?'Ultimo · '+fmtDate(metric.last.date):'Nessuna registrazione'}</span></div><div class="statdelta"><b>${metric.change===null?'—':(metric.change>0?'+':'')+statNumber(metric.change)} ${unit}</b><span>Variazione nel periodo</span></div></div>
+    ${trendChart(metric.points,label,unit,color)}
+    <div class="statfoot"><span>Iniziale <b>${statNumber(metric.first?.value)} ${unit}</b></span><span>Media <b>${statNumber(metric.average)} ${unit}</b></span><span>Min / max <b>${statNumber(metric.min)} / ${statNumber(metric.max)}</b></span></div>
+  </section>`;
+}
+function exerciseProgressHtml(exercise){
+  if(!exercise)return `<div class="chartempty">Completa delle serie per vedere i progressi dei tuoi esercizi.</div>`;
+  return `<div class="statfoot exercisefacts"><span>Carico massimo <b>${statNumber(exercise.bestWeight)} kg</b></span><span>Serie / reps <b>${exercise.sets} / ${exercise.reps}</b></span><span>Volume <b>${statNumber(exercise.volume)} kg</b></span></div>
+    ${trendChart(exercise.history,'Carico massimo per allenamento','kg','var(--blue)')}
+    <details class="exerciselog"><summary>Storico esercizio · ${exercise.history.length} allenamenti</summary><div class="tablewrap"><table class="statstable"><thead><tr><th>Data</th><th>Max kg</th><th>Serie</th><th>Reps</th><th>Volume kg</th></tr></thead><tbody>${[...exercise.history].reverse().map(p=>`<tr><th scope="row">${fmtDate(p.date)}<small>Seduta ${esc(p.sessionCode)}</small></th><td>${statNumber(p.value)}</td><td>${p.sets}</td><td>${p.reps}</td><td>${statNumber(p.volume)}</td></tr>`).join('')}</tbody></table></div></details>`;
+}
+function bindChartReadings(){
+  document.querySelectorAll('[data-chart-reading]').forEach(point=>{
+    const read=()=>point.closest('.trendchart').querySelector('.chartreading').textContent=point.dataset.chartReading;
+    point.onclick=read;point.onfocus=read;
+    point.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();read();}};
+  });
+}
 function renderHistory(){
-  const checks=[...state.checkins].sort((a,b)=>b.date.localeCompare(a.date));
-  const workouts=[...state.workouts].filter(w=>w.status==='completed').sort((a,b)=>new Date(b.finishedAt)-new Date(a.finishedAt));
-  app.innerHTML=shell(`<div class="appbar"><div><small>I tuoi dati</small><strong>Storico</strong></div></div>
-  <div class="content">
-    <div class="exportcard"><div><div class="ey">Da inviare al PT</div><b>Excel riepilogativo completo</b><small>Peso, vita, dieta, esercizi, serie, kg e reps.</small></div><button id="exportExcel" class="btn white">Scarica Excel</button></div>
-    <div class="section"><h3>Diario giornaliero</h3><span>${checks.length} giorni</span></div>
-    <div class="card">${checks.length?checks.map(c=>`<div class="diaryrow"><b>${fmtDate(c.date)}</b><span>${c.weight??'—'} kg</span><span>${c.waist??'—'} cm</span><span class="${c.diet==='non_rispettata'?'bad':'good'}">${c.diet==='rispettata'?'✓ dieta':c.diet==='non_rispettata'?'✕ dieta':'—'}</span></div>`).join(''):'<div class="muted">Nessun check-in ancora.</div>'}</div>
+  const range=statsPeriod==='custom'&&statsRange?statsRange:historyRange(statsPeriod);
+  const stats=historyStats(state,range),checks=[...stats.checks].reverse(),workouts=[...stats.workouts].reverse();
+  const t=stats.training,d=stats.diet;
+  if(!stats.exercises.some(e=>e.key===statsExercise))statsExercise=stats.exercises[0]?.key||null;
+  const exercise=stats.exercises.find(e=>e.key===statsExercise);
+  const volumeDays=new Map();
+  for(const w of stats.workouts){const date=localDayKey(w.finishedAt);volumeDays.set(date,(volumeDays.get(date)||0)+workoutStats(w).volume);}
+  app.innerHTML=shell(`<div class="appbar historybar"><div><small>Il tuo percorso</small><h1>Storico e statistiche<span class="branddot">.</span></h1></div></div>
+  <div class="content historycontent">
+    <button id="addPastCheckin" class="start">＋ Registra una giornata passata</button>
+    <div class="statsfilters"><div class="periodtabs" role="group" aria-label="Periodo delle statistiche">${[['30','30 giorni'],['90','90 giorni'],['all','Tutto'],['custom','Date']].map(([key,label])=>`<button data-stats-period="${key}" aria-pressed="${statsPeriod===key}" class="${statsPeriod===key?'active':''}">${label}</button>`).join('')}</div>
+      ${statsPeriod==='custom'?`<form id="statsDateForm" class="statsdates"><label>Dal<input type="date" id="statsFrom" max="${today()}" value="${range.from}" required></label><label>Al<input type="date" id="statsTo" max="${today()}" value="${range.to}" required></label><button class="btn" type="submit">Applica</button></form>`:''}
+      <p class="periodcaption">${range.from?fmtDate(range.from)+' – '+fmtDate(range.to):'Tutto lo storico fino al '+fmtDate(range.to)} · ${checks.length} giornate registrate</p>
+    </div>
+    <div class="statsoverview"><div><b>${t.count}</b><span>Allenamenti</span></div><div><b>${t.activeDays}</b><span>Giorni attivi</span></div><div><b>${d.rate===null?'—':statNumber(d.rate,0)+'%'}</b><span>Dieta rispettata</span></div></div>
+    ${measurementStatsHtml(stats.weight,'Peso','kg','var(--yellow)')}
+    ${measurementStatsHtml(stats.waist,'Circonferenza vita','cm','var(--blue)')}
+    <section class="statpanel"><div class="statheading"><h3>Dieta e costanza</h3><span>${d.recorded} giorni con dieta registrata</span></div><div class="dietbar ${d.recorded?'':'empty'}" role="img" aria-label="Dieta rispettata ${d.respected} giorni, non rispettata ${d.missed} giorni"><i style="width:${d.rate||0}%"></i></div><div class="dietlegend"><span><i class="gooddot"></i>Rispettata <b>${d.respected}</b></span><span><i class="baddot"></i>Non rispettata <b>${d.missed}</b></span></div><p class="statnote">La percentuale considera solo i giorni in cui hai registrato la dieta.</p></section>
+    <section class="statpanel"><div class="statheading"><h3>Allenamenti in numeri</h3><span>${t.count} completati</span></div><div class="trainingtotals"><div><b>${statNumber(t.sets,0)}</b><span>Serie completate</span></div><div><b>${statNumber(t.reps,0)}</b><span>Ripetizioni</span></div><div><b>${statNumber(t.volume,0)} <small>kg</small></b><span>Volume totale</span></div><div><b>${statNumber(t.averageMinutes,0)} <small>min</small></b><span>Durata media</span></div></div><div class="sessionbreakdown">${t.sessions.map(s=>`<span>Seduta ${esc(s.code)} <b>${s.count}</b></span>`).join('')||'<span>Nessuna seduta completata nel periodo.</span>'}</div><h4 class="chartsubtitle">Volume per giornata</h4>${trendChart([...volumeDays].map(([date,value])=>({date,value})),'Volume per giornata','kg','var(--green)')}<p class="statnote">Volume = kg × ripetizioni delle serie completate. Le serie a corpo libero con 0 kg contano nelle serie e nelle ripetizioni.</p></section>
+    <section class="statpanel"><div class="statheading"><h3>Progressi per esercizio</h3><span>${stats.exercises.length} esercizi</span></div><label class="sr-only" for="statsExercise">Scegli esercizio</label><select id="statsExercise" ${stats.exercises.length?'':'disabled'}>${stats.exercises.map(e=>`<option value="${esc(e.key)}" ${e.key===statsExercise?'selected':''}>${esc(e.name)}</option>`).join('')||'<option>Nessun esercizio registrato</option>'}</select><div id="exerciseProgress">${exerciseProgressHtml(exercise)}</div></section>
+    <div class="exportcard"><div><div class="ey">Da inviare al PT</div><b>Il tuo diario completo</b><small>Scarica tutti i dati, anche quelli precedenti al periodo selezionato.</small></div><button id="exportExcel" class="btn white">Scarica Excel</button></div>
+    <div class="section"><h3>Diario giornaliero</h3><span>${checks.length} giorni · tocca per modificare</span></div>
+    <div class="diarylist">${checks.length?checks.map(c=>`<button class="diaryentry" data-edit-checkin="${c.date}"><div class="diaryentryhead"><b>${fmtDate(c.date)}</b><span>Modifica ${icon('arrow')}</span></div><div class="diaryentrymetrics"><span>Peso <b>${statNumber(c.weight)} kg</b></span><span>Vita <b>${statNumber(c.waist)} cm</b></span><span>Dieta <b class="${c.diet==='non_rispettata'?'bad':c.diet==='rispettata'?'good':''}">${c.diet==='rispettata'?'Rispettata':c.diet==='non_rispettata'?'Non rispettata':'—'}</b></span></div>${c.notes?`<p>${esc(c.notes)}</p>`:''}</button>`).join(''):'<div class="card muted">Nessun check-in nel periodo. Puoi aggiungerne uno per qualsiasi giorno passato.</div>'}</div>
     <div class="section"><h3>Allenamenti</h3><span>dal più recente · ${workouts.length} completati</span></div>
     ${workouts.length?workouts.map((w,i)=>workoutHistoryHtml(w,i,workouts)).join(''):'<div class="card muted">Nessun allenamento completato.</div>'}
   </div>${nav('history')}`);
   bindNav();document.getElementById('exportExcel').onclick=exportExcel;
+  document.getElementById('addPastCheckin').onclick=()=>openDailyCheckin('date');
+  document.querySelectorAll('[data-edit-checkin]').forEach(b=>b.onclick=()=>openDailyCheckin('weight',b.dataset.editCheckin));
+  document.querySelectorAll('[data-stats-period]').forEach(b=>b.onclick=()=>{
+    statsPeriod=b.dataset.statsPeriod;
+    if(statsPeriod==='custom'&&!statsRange)statsRange=historyRange('30');
+    renderHistory();
+  });
+  const dates=document.getElementById('statsDateForm');
+  if(dates)dates.onsubmit=e=>{
+    e.preventDefault();
+    const from=document.getElementById('statsFrom'),to=document.getElementById('statsTo');
+    to.setCustomValidity(from.value>to.value?'La data finale deve essere successiva o uguale a quella iniziale.':'');
+    if(!dates.reportValidity())return;
+    statsRange={from:from.value,to:to.value};renderHistory();
+  };
+  if(dates)dates.querySelectorAll('input').forEach(input=>input.oninput=()=>document.getElementById('statsTo').setCustomValidity(''));
+  document.getElementById('statsExercise').onchange=e=>{
+    statsExercise=e.target.value;
+    document.getElementById('exerciseProgress').innerHTML=exerciseProgressHtml(stats.exercises.find(ex=>ex.key===statsExercise));
+    bindChartReadings();
+  };
+  bindChartReadings();
 }
 function workoutHistoryHtml(w,index=0,all=[]){
+  const metrics=workoutStats(w),drafts=(w.sets||[]).filter(s=>!s.completedAt).length;
   const older=all[index+1];
   const gap=older?gapDays(w.finishedAt,older.finishedAt):null;
   const rank=index===0?'ULTIMO':index===1?'PRECEDENTE':'';
@@ -617,19 +725,24 @@ function workoutHistoryHtml(w,index=0,all=[]){
     <summary>
       <span>
         ${rank?`<em>${rank}</em>`:''}
-        <b>${fmtDate(String(w.finishedAt).slice(0,10))} · Seduta ${esc(w.sessionCode)}</b>
-        <small>${daysAgoLabel(w.finishedAt)} · ${(w.sets||[]).length} serie${gap!==null?` · intervallo ${gap} ${gap===1?'giorno':'giorni'}`:''}</small>
+        <b>${fmtDate(localDayKey(w.finishedAt))} · Seduta ${esc(w.sessionCode)}</b>
+        <small>${daysAgoLabel(w.finishedAt)} · ${metrics.sets} serie completate${drafts?` · ${drafts} non completate`:''}${gap!==null?` · intervallo ${gap} ${gap===1?'giorno':'giorni'}`:''}</small>
       </span><span>＋</span>
     </summary>
-    <div class="histinside">${(w.exerciseSnapshot||[]).map(e=>{const sets=(w.sets||[]).filter(s=>s.exerciseId===e.id).sort((a,b)=>a.setNo-b.setNo);return `<div class="histEx"><b>${esc(e.name)}</b><div>${sets.length?sets.map(s=>`<span>${s.weight} kg × ${s.reps}</span>`).join(''):'<span class="muted">Nessuna serie registrata</span>'}</div></div>`;}).join('')}</div>
+    <div class="histinside"><p class="statnote">${metrics.reps} ripetizioni · ${statNumber(metrics.volume)} kg di volume${metrics.minutes===null?'':` · ${statNumber(metrics.minutes,0)} min`}</p>${(w.exerciseSnapshot||[]).map(e=>{const sets=(w.sets||[]).filter(s=>s.exerciseId===e.id).sort((a,b)=>a.setNo-b.setNo);return `<div class="histEx"><b>${esc(e.name)}</b><div>${sets.length?sets.map(s=>`<span>Serie ${s.setNo}: ${statNumber(s.weight)} kg × ${statNumber(s.reps,0)}${s.completedAt?'':' · non completata'}</span>`).join(''):'<span class="muted">Nessuna serie registrata</span>'}</div></div>`;}).join('')}</div>
   </details>`;
 }
 async function exportExcel(){
   if(!navigator.onLine)return toast('Per creare il file Excel serve Internet. I dati offline sono comunque al sicuro.');
-  await flush();
-  const r=await fetch('/api/export.xlsx',{credentials:'include'});
-  if(!r.ok)return toast('Errore nella creazione Excel');
-  const blob=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`GymFlow_${state.profile.firstName}_${today()}.xlsx`;a.click();URL.revokeObjectURL(a.href);
+  try{
+    await checkSavePromise;
+    await flush();
+    const r=await apiFetch('/api/export.xlsx');
+    if(!r.ok)return toast('Errore nella creazione Excel');
+    const blob=await r.blob(),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`GymFlow_${state.profile.firstName}_${today()}.xlsx`;a.click();URL.revokeObjectURL(a.href);
+  }catch(error){
+    if(!error.authRequired)toast(error.message||'Errore nella creazione Excel');
+  }
 }
 
 function renderProfile(){
@@ -658,7 +771,9 @@ async function boot(){
   }
   initSync();
   let auth=null;
-  try{if(navigator.onLine){const r=await fetch('/api/me',{credentials:'include'});if(r.ok)auth=(await r.json()).user;}}catch{}
+  let sessionExpired=false;
+  try{if(navigator.onLine){const r=await fetch('/api/me',{credentials:'include'});if(r.ok)auth=(await r.json()).user;else if(r.status===401)sessionExpired=true;}}catch{}
+  if(sessionExpired)return loginView('Sessione scaduta. Accedi di nuovo.');
   if(!auth)auth=await localAuth();
   if(!auth)return loginView();
   try{state=await bootstrap();render();}catch(e){loginView(e.message);}

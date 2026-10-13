@@ -4,6 +4,8 @@
 html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:"Aptos","Segoe UI",sans-serif}
 body{font-size:14px;line-height:1.5}
 button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}
+select,textarea{font:inherit;color:var(--text);color-scheme:dark}
+select:focus-visible,textarea:focus-visible{outline:2px solid var(--yellow);outline-offset:4px}
 button,input,summary{-webkit-tap-highlight-color:transparent}
 button,summary{touch-action:manipulation}
 button:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid var(--yellow);outline-offset:4px}
@@ -112,6 +114,67 @@ h1,h2,h3{font-weight:650;letter-spacing:-.035em;line-height:1.12}
 .checkinDialog .dialognotes input{font-size:16px}
 .checkinDialog .autosave{font-size:10px;color:var(--muted);margin:15px 0}
 .checkinDialog .start{display:flex;align-items:center;justify-content:center;gap:10px}
+.pastcheckin{width:100%;color:var(--yellow);font-size:11px;min-height:38px;padding:8px 0}
+.dialogdate input{font-size:16px}
+.datehint{font-size:11px;line-height:1.5;color:var(--muted);margin:8px 0 20px}
+.checkinDialog select,.checkinDialog textarea{display:block;width:100%;margin-top:7px;padding:11px;background:var(--bg);border:1px solid var(--line);border-radius:4px;font-size:16px}
+.checkinDialog textarea{resize:vertical;min-height:76px}
+/* The history reads as a training ledger: large values, fine rules, quiet charts. */
+.historybar h1{font-size:34px;max-width:480px}
+.historycontent>.start{margin-bottom:24px}
+.periodtabs{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.periodtabs button{background:transparent;border:0;border-right:1px solid var(--line);color:var(--muted);font-size:12px;min-height:43px;padding:8px}
+.periodtabs button:last-child{border-right:0}.periodtabs button.active{background:var(--yellow);color:var(--bg);font-weight:700}
+.periodcaption{font-size:11px;color:var(--muted);margin:10px 0 20px}
+.statsdates{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-top:14px}
+.statsdates label{font-size:11px;color:var(--muted);min-width:0}
+.statsdates input{display:block;width:100%;margin-top:5px;padding:10px 7px;border:1px solid var(--line);background:var(--panel);border-radius:4px;font-size:14px}
+.statsoverview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:20px 0 24px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.statsoverview>div{padding-right:8px}.statsoverview>div+div{border-left:1px solid var(--line);padding-left:18px}
+.statsoverview b{display:block;font-family:"Bahnschrift","Aptos Display",sans-serif;font-size:34px;line-height:1.1;font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+.statsoverview span{display:block;font-size:10px;color:var(--muted);margin-top:7px}
+.statpanel{padding:26px 0;border-bottom:1px solid var(--line)}
+.statheading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:18px}
+.statheading h3{font-size:20px;margin:0}.statheading>span{font-size:10px;color:var(--muted);text-align:right}
+.measurementstats{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.measurementstats strong{font-family:"Bahnschrift","Aptos Display",sans-serif;font-size:42px;line-height:1.1;letter-spacing:-.04em;font-weight:450;font-variant-numeric:tabular-nums}
+.measurementstats strong small{font-family:inherit;font-size:14px;letter-spacing:0;color:var(--muted);margin-left:6px}
+.measurementstats span{display:block;color:var(--muted);font-size:10px;margin-top:6px}
+.statdelta{text-align:right}.statdelta b{font-size:19px;font-weight:500;font-variant-numeric:tabular-nums}
+.trendchart{margin:20px 0 12px}.trendchart svg{width:100%;height:auto;display:block;overflow:visible}
+.chartgrid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 5}.chartlabel{fill:var(--muted);font-size:11px}
+.chartline{fill:none;stroke:var(--chart-color);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.chartpoint{fill:var(--bg);stroke:var(--chart-color);stroke-width:2;cursor:pointer}
+.chartpoint:hover,.chartpoint:focus{fill:var(--chart-color);stroke-width:4;outline:none}
+.chartreading{min-height:28px;font-size:11px;color:var(--muted);padding-top:6px;text-align:center}
+.chartempty{padding:28px 16px;margin:15px 0;background:var(--panel);border:1px dashed var(--line);border-radius:4px;color:var(--muted);font-size:12px;text-align:center}
+.statfoot{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding-top:12px;border-top:1px solid var(--line)}
+.statfoot span{color:var(--muted);font-size:10px;min-width:0}.statfoot b{display:block;color:var(--text);font-size:12px;font-weight:500;margin-top:4px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.dietbar{height:8px;background:var(--red);border-radius:2px;overflow:hidden}.dietbar i{display:block;height:100%;background:var(--green)}
+.dietbar.empty{background:var(--line)}
+.dietlegend{display:flex;justify-content:space-between;gap:14px;margin-top:16px;font-size:11px;color:var(--muted)}
+.dietlegend b{color:var(--text);margin-left:6px}.dietlegend i{display:inline-block;width:7px;height:7px;margin-right:6px}
+.gooddot{background:var(--green)}.baddot{background:var(--red)}
+.statnote{font-size:10px;color:var(--muted);line-height:1.6;margin:14px 0 0}
+.trainingtotals{display:grid;grid-template-columns:1fr 1fr;gap:20px 16px}
+.trainingtotals b{display:block;font-size:25px;font-weight:500;line-height:1.25;font-variant-numeric:tabular-nums}.trainingtotals small{font-size:12px;color:var(--muted)}
+.trainingtotals span{display:block;font-size:10px;color:var(--muted);margin-top:4px}
+.sessionbreakdown{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}.sessionbreakdown>span{border:1px solid var(--line);padding:6px 10px;border-radius:3px;font-size:10px;color:var(--muted)}.sessionbreakdown b{margin-left:8px;color:var(--yellow);font-size:12px}
+.chartsubtitle{font-size:12px;font-weight:500;color:var(--muted);margin:24px 0 0}
+#statsExercise{width:100%;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:4px;font-size:14px}
+.exercisefacts{margin-top:18px;border-top:0;padding-top:0}
+.exerciselog summary{font-size:12px;color:var(--muted);padding:12px 0;cursor:pointer}
+.tablewrap{overflow-x:auto}.statstable{width:100%;border-collapse:collapse;font-size:11px;font-variant-numeric:tabular-nums;text-align:right}
+.statstable th,.statstable td{padding:10px 6px;border-bottom:1px solid var(--line);white-space:nowrap}.statstable th{font-weight:500}
+.statstable thead{color:var(--muted)}.statstable th:first-child{text-align:left}.statstable small{display:block;font-size:9px;color:var(--muted);margin-top:2px}
+.historycontent>.exportcard{margin-top:26px}
+.diaryentry{display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--line);padding:18px 0;background:transparent;color:var(--text)}
+.diaryentry:hover{background:#ffffff04}.diaryentryhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.diaryentryhead>b{font-size:14px;font-weight:600}.diaryentryhead>span{font-size:10px;color:var(--yellow)}.diaryentryhead svg{width:14px;height:14px;margin-left:5px}
+.diaryentrymetrics{display:grid;grid-template-columns:1fr 1fr 1.1fr;gap:10px}.diaryentrymetrics span{font-size:10px;color:var(--muted)}.diaryentrymetrics b{display:block;color:var(--text);font-size:12px;font-weight:500;margin-top:4px}.diaryentrymetrics b.good{color:var(--green)}.diaryentrymetrics b.bad{color:var(--red)}
+.diaryentry p{font-size:12px;color:var(--muted);line-height:1.6;margin:12px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:500px){.historybar h1{font-size:29px}.statsdates{grid-template-columns:1fr 1fr}.statsdates .btn{grid-column:1/-1}.statheading h3{font-size:18px}.statsoverview b{font-size:30px}.statsoverview>div+div{padding-left:12px}.checkinDialog{padding:20px}.dialogheading{margin-bottom:18px}.dialogheading h2{font-size:23px}.statfoot{gap:8px}}
+@media(max-width:360px){.statheading{gap:8px}.statheading>span{max-width:110px}.statsoverview b{font-size:27px}.measurementstats strong{font-size:36px}.statdelta b{font-size:16px}.dietlegend{font-size:10px;gap:8px}.diaryentrymetrics{gap:6px}.statfoot b{font-size:11px}}
 @media(max-width:500px){.dashboardbar h1{font-size:27px}.dashboardbar{padding-top:15px}.dashboard{padding-bottom:calc(106px + env(safe-area-inset-bottom,0px))}}
 @media(max-width:360px){.dashboardbar h1{font-size:24px}.daystatus{gap:7px;grid-template-columns:19px 1fr auto}.daystatus b{font-size:11px}.dayaction{font-size:10px;padding:8px}.dayaction svg{display:none}.weekcalendar{gap:4px}.weekstats small{font-size:9px}}
 @media(max-height:720px){.shell:has(.dashboard) .brandrow{height:50px}.dashboardbar{padding:12px 0 9px}.dashboardbar h1{font-size:25px}.measureheading{height:33px}.measurestrip{padding-bottom:9px}.measureaction strong{font-size:32px;min-height:37px}.weeksection{padding:12px 0 10px}.weekdate{min-height:64px}.daystatus{min-height:74px;padding:10px 0}.dietdashboard{padding-top:11px}.dashboard{padding-bottom:calc(98px + env(safe-area-inset-bottom,0px))}}

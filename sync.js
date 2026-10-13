@@ -2,6 +2,20 @@ import {localStateGet,localStateSet,metaGet,metaSet,outboxAdd,outboxAll,outboxDe
 
 const mid=()=>`mut_${crypto.randomUUID().replaceAll('-','')}`;
 let syncPromise=null;
+const SESSION_EXPIRED='Sessione scaduta. Accedi di nuovo e riprova.';
+
+async function checkAuth(r){
+  if(r.status!==401)return r;
+  await metaSet('auth',null);
+  window.dispatchEvent(new CustomEvent('gymflow-auth-required',{detail:{message:SESSION_EXPIRED}}));
+  const error=new Error(SESSION_EXPIRED);
+  error.authRequired=true;
+  throw error;
+}
+
+export async function apiFetch(url,options={}){
+  return checkAuth(await fetch(url,{...options,credentials:'include'}));
+}
 
 function emit(extra={}){
   outboxCount().then(pending=>{
@@ -26,13 +40,15 @@ export async function bootstrap(){
   if(navigator.onLine){
     await flush();
     try{
-      const r=await fetch('/api/bootstrap',{credentials:'include'});
+      const r=await apiFetch('/api/bootstrap');
       const d=await r.json().catch(()=>({}));
       if(!r.ok)throw new Error(d.error||'Errore');
       await localStateSet(d);
       emit({fresh:true});
       return d;
-    }catch{}
+    }catch(error){
+      if(error.authRequired)throw error;
+    }
   }
   const local=await localStateGet();
   if(local){emit({offline:true});return local;}
@@ -62,8 +78,8 @@ async function drainOutbox(){
     while(navigator.onLine){
     const items=await outboxAll();
     if(!items.length){emit({synced:true});return true;}
-    const r=await fetch('/api/sync',{
-      method:'POST',credentials:'include',
+    const r=await apiFetch('/api/sync',{
+      method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({mutations:items})
     });

@@ -58,7 +58,15 @@ Su Railway puoi cambiare le credenziali impostando:
 9. I dati devono essere ancora presenti.
 10. Riattiva Internet: l'indicatore deve tornare a `✓ SALVATO`.
 
-## Nota Excel
+## Diario retroattivo e statistiche
+
+Dalla Home scegli **Inserisci dati di un altro giorno**, oppure apri **Storico → Registra una giornata passata**. Nel check-in seleziona la data e registra peso, vita, dieta e note. Le giornate già presenti si possono modificare toccando la riga nel diario. Il salvataggio funziona anche offline e si sincronizza al ritorno della connessione.
+
+In **Storico e statistiche** trovi grafici di peso e vita, variazioni e medie, percentuale di dieta rispettata, allenamenti e giorni attivi, serie completate, ripetizioni, volume, durata media e progressi per esercizio. Puoi scegliere 30 giorni, 90 giorni, tutto lo storico o un intervallo di date. Le giornate senza dieta non entrano nella percentuale; le serie non completate non entrano nei totali. L'Excel esporta sempre l'intero diario, indipendentemente dal filtro.
+
+Verifiche: `npm run check` e `npm test`. La prova browser `tests/history-ui.browser.mjs` usa Playwright e un server locale sulla porta 4188, intercetta tutte le scritture API e verifica date passate, modifiche, filtri, layout mobile/desktop e salvataggio offline. Puoi indicare un diverso URL con `GYMFLOW_TEST_URL` e il modulo Playwright con `GYMFLOW_PLAYWRIGHT_MODULE`.
+
+## Esportazione Excel
 
 Il file Excel viene generato dal server, quindi per scaricarlo serve connessione.
 I dati registrati offline restano comunque sul dispositivo e vengono sincronizzati prima dell'export.
